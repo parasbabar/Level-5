@@ -1,0 +1,98 @@
+{
+  "manifest-version": "1",
+  "compiler-version": "0.34.0",
+  "language-version": "0.26.0",
+  "runtime-version": "0.19.0",
+  "compiler": {
+    "type": "directory",
+    "contract-info.json": {
+      "type": "file",
+      "size": 3493,
+      "hash": "9036b66d6949e67331d000179799183c07885f11ad7e50429bafb0578a3894c1"
+    }
+  },
+  "contract": {
+    "type": "directory",
+    "index.d.ts": {
+      "type": "file",
+      "size": 3444,
+      "hash": "fa52abc489ff1b8db5c89b7e47a84d76def3d2edaef9427d9ba5b67926491df6"
+    },
+    "index.js": {
+      "type": "file",
+      "size": 46155,
+      "hash": "f45a190c57cd8771b1ffeeca91fdcebb954ee11e7e9f7a4310008ab4e2a7e368"
+    },
+    "index.js.map": {
+      "type": "file",
+      "size": 2026,
+      "hash": "2ec89fd73a87c54e8e61bf26cc1885f1ebfea786b9f335dfa6b82d8da0fd33ff"
+    }
+  },
+  "zkir": {
+    "type": "directory",
+    "proveCompliance.bzkir": {
+      "type": "file",
+      "size": 87,
+      "hash": "3879c8a11a1e07fe1572154f0f4ae4c623889af52351717da64ff6a87ce72448"
+    },
+    "proveCompliance.zkir": {
+      "type": "file",
+      "size": 1122,
+      "hash": "228fabed6e8397f20f1378764adf6cf06f5298b02c05406700a35221c6d3fe76"
+    },
+    "proveOwnershipThreshold.bzkir": {
+      "type": "file",
+      "size": 182,
+      "hash": "2ae55f9b2729c1494a7b02fc14b0c1e15efdde4bebee69147d7dffb176dcc0d0"
+    },
+    "proveOwnershipThreshold.zkir": {
+      "type": "file",
+      "size": 2829,
+      "hash": "5cc159bf629561d6381b78c3c07f29ed89b76ad611f1bb8da1115a73f25af62f"
+    },
+    "proveRentalClaim.bzkir": {
+      "type": "file",
+      "size": 87,
+      "hash": "61daca5324b15b16b684db5d0607ae96f68d30e89c23dabb054827adc851b08c"
+    },
+    "proveRentalClaim.zkir": {
+      "type": "file",
+      "size": 1122,
+      "hash": "d948fe8b894ed479858321740f9b0f217524348e16a71763e542bd26655134f4"
+    }
+  },
+  "keys": {
+    "type": "directory",
+    "proveCompliance.prover": {
+      "type": "file",
+      "size": 148550,
+      "hash": "8ad7881ee7b80b91c8b2efa0fa6b9c7efb3d5ae79a974a3d09975a9ffec0a5aa"
+    },
+    "proveCompliance.verifier": {
+      "type": "file",
+      "size": 1351,
+      "hash": "4d1efef0afcf15495bf7dc9fb133012036cacab07f7e28f9aaa771fde47054b3"
+    },
+    "proveOwnershipThreshold.prover": {
+      "type": "file",
+      "size": 148884,
+      "hash": "4e75fbb62aa3dc29118a0e3d3df955951eb4eebacf52d955b35be94e4ef5fcbe"
+    },
+    "proveOwnershipThreshold.verifier": {
+      "type": "file",
+      "size": 1351,
+      "hash": "5779949786a59162ae59501e6b16ad86875dad79afd412a84525c9c4be8de984"
+    },
+    "proveRentalClaim.prover": {
+      "type": "file",
+      "size": 148551,
+      "hash": "bde805622a4df8159406658c684f7ce00e72519ac34b288aedd5af83e8e46da7"
+    },
+    "proveRentalClaim.verifier": {
+      "type": "file",
+      "size": 1351,
+      "hash": "1e1bbc9ff171000c4d80089a84ce53f07b924f0e049e4cc7c4802cef11509372"
+    }
+  }
+}
