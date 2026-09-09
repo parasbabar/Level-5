@@ -1,0 +1,142 @@
+/**
+ * PrivEstate - Private Ownership & Verifiable Real Estate Smart Contract
+ * 
+ * ============================================================================
+ * PRIVACY MODEL OVERVIEW
+ * ============================================================================
+ * 
+ * 1. PUBLIC LEDGER STATE:
+ *    - Information that must be publicly visible and verifiable by all network
+ *      participants, including property identifiers, total fractional shares,
+ *      regulatory compliance minimums, and aggregated verification audit counters.
+ *    - Public Fields:
+ *      * propertyId: Unique identifier for the tokenized real-world property.
+ *      * totalShares: Total authorized fractional tokens/shares issued for property.
+ *      * complianceMinimum: Public threshold for investor accreditation/compliance.
+ *      * verifiedOwnershipCount: Public counter of cryptographically verified ownership claims.
+ *      * verifiedComplianceCount: Public counter of cryptographically verified compliance proofs.
+ *      * verifiedRentalYieldCount: Public counter of confidential rental yield verifications.
+ *      * lastVerifiedThreshold: The public threshold verified in the most recent proof.
+ * 
+ * 2. PRIVATE DATA (REMAINS CONFIDENTIAL & SHIELDED):
+ *    - Sensitive financial and identity information belonging to the investor.
+ *    - NEVER stored in public ledger state and NEVER revealed during verification.
+ *    - Private Fields:
+ *      * investorOwnership: The investor's exact share count (e.g. 17,430 shares out of 100,000).
+ *      * investmentAmount: The exact fiat/stablecoin capital deployed (e.g. $500,000).
+ *      * rentalIncome: The investor's confidential rental yield/income payout.
+ *      * investorSecretKey: Private cryptographic key/salt proving identity authorization.
+ * 
+ * 3. ZERO-KNOWLEDGE PROOFS:
+ *    - Enables investors to prove validity of claims to third parties (auditors,
+ *      regulators, syndicates) without disclosing underlying sensitive values:
+ *      * Claim A: "I own at least X% of Property Y" (investorOwnership >= requiredShares)
+ *      * Claim B: "My investment satisfies regulatory minimum" (investmentAmount >= minimumRequired)
+ *      * Claim C: "My rental yield exceeds threshold" (rentalIncome >= minimumYield)
+ *    - Verifiers learn solely whether the condition holds (VALID / INVALID).
+ *    - The exact underlying values remain strictly hidden.
+ * ============================================================================
+ */
+
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// --- PUBLIC LEDGER STATE ---
+export ledger propertyId: Bytes<32>;
+export ledger totalShares: Uint<64>;
+export ledger complianceMinimum: Uint<64>;
+
+export ledger verifiedOwnershipCount: Counter;
+export ledger verifiedComplianceCount: Counter;
+export ledger verifiedRentalYieldCount: Counter;
+
+export ledger lastVerifiedThreshold: Uint<64>;
+
+// --- CONTRACT CONSTRUCTOR ---
+constructor(
+  initPropertyId: Bytes<32>,
+  initTotalShares: Uint<64>,
+  initComplianceMinimum: Uint<64>
+) {
+  propertyId = disclose(initPropertyId);
+  totalShares = disclose(initTotalShares);
+  complianceMinimum = disclose(initComplianceMinimum);
+  lastVerifiedThreshold = 0;
+}
+
+// --- PRIVATE WITNESS DECLARATIONS ---
+// These functions fetch private state from the local user's shielded storage
+witness getInvestorOwnership(): Uint<64>;
+witness getInvestmentAmount(): Uint<64>;
+witness getRentalIncome(): Uint<64>;
+witness getInvestorSecretKey(): Bytes<32>;
+
+// --- CIRCUITS ---
+
+/**
+ * Prove that the caller owns at least `requiredShares` without disclosing
+ * their exact ownership amount.
+ * 
+ * Private witness: getInvestorOwnership()
+ * Public input: requiredShares
+ * Constraint: investorOwnership >= requiredShares && investorOwnership <= totalShares
+ */
+export circuit proveOwnershipThreshold(requiredShares: Uint<64>): [] {
+  const actualOwnership = getInvestorOwnership();
+  
+  // ZK constraint: investor must hold at least the requested threshold
+  assert(actualOwnership >= requiredShares, "Ownership threshold requirement not satisfied");
+  
+  // ZK constraint: investor cannot hold more than total existing shares
+  assert(actualOwnership <= totalShares, "Investor ownership exceeds total authorized shares");
+  
+  // Increment public audit verification counter and record the verified threshold
+  verifiedOwnershipCount.increment(1);
+  lastVerifiedThreshold = disclose(requiredShares);
+}
+
+/**
+ * Prove regulatory/investor eligibility: that the investor's deployed capital
+ * satisfies or exceeds `minimumRequired`, without disclosing the actual capital.
+ * 
+ * Private witness: getInvestmentAmount()
+ * Public input: minimumRequired
+ * Constraint: investmentAmount >= minimumRequired
+ */
+export circuit proveCompliance(minimumRequired: Uint<64>): [] {
+  const actualInvestment = getInvestmentAmount();
+  
+  // ZK constraint: investment must meet or exceed minimum requirement
+  assert(actualInvestment >= minimumRequired, "Investment does not meet minimum compliance threshold");
+  
+  // Increment public compliance verification counter
+  verifiedComplianceCount.increment(1);
+}
+
+/**
+ * Prove confidential rental income / yield claim without revealing
+ * private earnings.
+ * 
+ * Private witness: getRentalIncome()
+ * Public input: minimumYield
+ * Constraint: rentalIncome >= minimumYield
+ */
+export circuit proveRentalClaim(minimumYield: Uint<64>): [] {
+  const actualRental = getRentalIncome();
+  
+  // ZK constraint: rental yield must meet or exceed the claimed yield benchmark
+  assert(actualRental >= minimumYield, "Rental income does not meet required yield threshold");
+  
+  // Increment public rental verification counter
+  verifiedRentalYieldCount.increment(1);
+}
+
+/**
+ * Pure verification circuit: Computes a cryptographic commitment
+ * over the investor's identity secret key and property ID,
+ * allowing off-chain identity verification without leaking the secret.
+ */
+export circuit computeInvestorCommitment(sk: Bytes<32>, propId: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([pad(32, "privestate:inv:"), propId, sk]);
+}
