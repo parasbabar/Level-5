@@ -1,0 +1,128 @@
+import React from 'react';
+import { Wallet, ShieldCheck, AlertCircle, ExternalLink, RefreshCw, CheckCircle2, Lock } from 'lucide-react';
+import type { WalletConnectionStatus } from '../hooks/useMidnight';
+
+interface WalletConnectProps {
+  status: WalletConnectionStatus;
+  walletName: string | null;
+  walletIcon: string | null;
+  shieldedAddress: string | null;
+  networkId: string;
+  error: string | null;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}
+
+export const WalletConnect: React.FC<WalletConnectProps> = ({
+  status,
+  walletName,
+  walletIcon,
+  shieldedAddress,
+  networkId,
+  error,
+  onConnect,
+  onDisconnect,
+}) => {
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl text-slate-100">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        {/* Left: Wallet Info */}
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+            {walletIcon ? (
+              <img src={walletIcon} alt={walletName || 'Wallet'} className="w-7 h-7 rounded" />
+            ) : (
+              <Wallet className="w-6 h-6" />
+            )}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-base text-white">
+                {walletName || 'Midnight Lace Wallet'}
+              </span>
+              <span className="px-2 py-0.5 text-xs font-mono rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                Network: {networkId}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
+              <Lock className="w-3 h-3 text-emerald-400" />
+              <span>DApp Connector Standard (window.midnight)</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Right: Actions & State */}
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+          {status === 'connected' ? (
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Wallet Connected</span>
+                </div>
+                {shieldedAddress && (
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {shieldedAddress.slice(0, 8)}...{shieldedAddress.slice(-6)}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={onDisconnect}
+                className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition"
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : status === 'connecting' ? (
+            <button
+              disabled
+              className="px-4 py-2 text-sm font-medium bg-indigo-600/50 text-indigo-200 rounded-lg flex items-center gap-2 cursor-not-allowed"
+            >
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>Connecting...</span>
+            </button>
+          ) : (
+            <button
+              onClick={onConnect}
+              className="px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg shadow-lg shadow-emerald-900/30 flex items-center gap-2 transition"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Connect Midnight Wallet</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Error / Not Detected Alerts */}
+      {status === 'wallet-not-detected' && (
+        <div className="mt-4 p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-300">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-200">Midnight Wallet Extension Not Detected</p>
+              <p className="text-amber-300/80 mt-1">
+                To connect a live wallet, install the official{' '}
+                <a
+                  href="https://docs.midnight.network/develop/tutorial/building/prereqs#install-the-midnight-lace-wallet"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline font-medium text-amber-200 hover:text-white inline-flex items-center gap-0.5"
+                >
+                  Midnight Lace Wallet <ExternalLink className="w-3 h-3 inline" />
+                </a>{' '}
+                and reload. You can still test all real Zero-Knowledge proofs and Compact circuits using the compiled in-browser verification engine below!
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && status === 'error' && (
+        <div className="mt-4 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-300 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+    </div>
+  );
+};
