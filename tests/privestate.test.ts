@@ -1,0 +1,256 @@
+/**
+ * PrivEstate Smart Contract Tests
+ * 
+ * Tests the real Compact privacy contract execution, private witnesses,
+ * Zero-Knowledge circuit constraints, and public ledger assertions.
+ */
+
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  type CircuitContext,
+  sampleContractAddress,
+  createConstructorContext,
+  createCircuitContext,
+} from '@midnight-ntwrk/compact-runtime';
+import {
+  Contract,
+  type Ledger,
+  type Witnesses,
+  ledger,
+  pureCircuits,
+} from '../managed/contract/index.js';
+
+export interface PrivEstatePrivateState {
+  investorOwnership: bigint;
+  investmentAmount: bigint;
+  rentalIncome: bigint;
+  investorSecretKey: Uint8Array;
+}
+
+const createWitnesses = (): Witnesses<PrivEstatePrivateState> => ({
+  getInvestorOwnership: ({ privateState }: { privateState: PrivEstatePrivateState }) => [privateState, privateState.investorOwnership],
+  getInvestmentAmount: ({ privateState }: { privateState: PrivEstatePrivateState }) => [privateState, privateState.investmentAmount],
+  getRentalIncome: ({ privateState }: { privateState: PrivEstatePrivateState }) => [privateState, privateState.rentalIncome],
+});
+
+export class PrivEstateSimulator {
+  readonly contract: Contract<PrivEstatePrivateState>;
+  circuitContext: CircuitContext<PrivEstatePrivateState>;
+
+  private constructor(
+    contract: Contract<PrivEstatePrivateState>,
+    circuitContext: CircuitContext<PrivEstatePrivateState>
+  ) {
+    this.contract = contract;
+    this.circuitContext = circuitContext;
+  }
+
+  static async create(
+    initialPrivateState: PrivEstatePrivateState,
+    propertyId: Uint8Array,
+    totalShares: bigint,
+    complianceMinimum: bigint
+  ): Promise<PrivEstateSimulator> {
+    const witnesses = createWitnesses();
+    const contract = new Contract<PrivEstatePrivateState>(witnesses);
+    const constructorContext = createConstructorContext(
+      initialPrivateState,
+      '0'.repeat(64)
+    );
+    const {
+      currentPrivateState,
+      currentContractState,
+      currentZswapLocalState,
+    } = await contract.initialState(
+      constructorContext,
+      propertyId,
+      totalShares,
+      complianceMinimum
+    );
+
+    const contractAddress = sampleContractAddress();
+    const circuitContext = createCircuitContext(
+      'privestate',
+      contractAddress,
+      currentZswapLocalState,
+      currentContractState,
+      currentPrivateState
+    );
+
+    return new PrivEstateSimulator(contract, circuitContext);
+  }
+
+  public getLedger(): Ledger {
+    return ledger(this.circuitContext.callContext.currentQueryContext.state);
+  }
+
+  public getPrivateState(): PrivEstatePrivateState {
+    return this.circuitContext.callContext.currentPrivateState as PrivEstatePrivateState;
+  }
+
+  public setPrivateState(state: Partial<PrivEstatePrivateState>) {
+    const prev = this.circuitContext.callContext.currentPrivateState as PrivEstatePrivateState;
+    this.circuitContext.callContext.currentPrivateState = {
+      ...prev,
+      ...state,
+    };
+  }
+
+  public async proveOwnershipThreshold(requiredShares: bigint): Promise<Ledger> {
+    const result = await this.contract.impureCircuits.proveOwnershipThreshold(
+      this.circuitContext,
+      requiredShares
+    );
+    this.circuitContext = result.context;
+    return ledger(this.circuitContext.callContext.currentQueryContext.state);
+  }
+
+  public async proveCompliance(minimumRequired: bigint): Promise<Ledger> {
+    const result = await this.contract.impureCircuits.proveCompliance(
+      this.circuitContext,
+      minimumRequired
+    );
+    this.circuitContext = result.context;
+    return ledger(this.circuitContext.callContext.currentQueryContext.state);
+  }
+
+  public async proveRentalClaim(minimumYield: bigint): Promise<Ledger> {
+    const result = await this.contract.impureCircuits.proveRentalClaim(
+      this.circuitContext,
+      minimumYield
+    );
+    this.circuitContext = result.context;
+    return ledger(this.circuitContext.callContext.currentQueryContext.state);
+  }
+}
+
+describe('PrivEstate Privacy Contract Test Suite', () => {
+  const propertyId = new Uint8Array(32).fill(7); // Sample property identifier
+  const totalShares = 100_000n; // 100,000 total tokenized shares
+  const complianceMinimum = 250_000n; // $250,000 minimum accreditation requirement
+  const investorSecretKey = new Uint8Array(32).fill(42);
+
+  let simulator: PrivEstateSimulator;
+
+  beforeEach(async () => {
+    // Default investor holds 17,430 shares (17.43%), has invested $500,000, and receives $45,000 in rental income
+    simulator = await PrivEstateSimulator.create(
+      {
+        investorOwnership: 17_430n,
+        investmentAmount: 500_000n,
+        rentalIncome: 45_000n,
+        investorSecretKey,
+      },
+      propertyId,
+      totalShares,
+      complianceMinimum
+    );
+  });
+
+  describe('Contract Initialization', () => {
+    it('initializes public ledger state correctly while keeping investor data private', () => {
+      const publicLedger = simulator.getLedger();
+      expect(publicLedger.propertyId).toEqual(propertyId);
+      expect(publicLedger.totalShares).toEqual(100_000n);
+      expect(publicLedger.complianceMinimum).toEqual(250_000n);
+      expect(publicLedger.verifiedOwnershipCount).toEqual(0n);
+      expect(publicLedger.verifiedComplianceCount).toEqual(0n);
+      expect(publicLedger.verifiedRentalYieldCount).toEqual(0n);
+      expect(publicLedger.lastVerifiedThreshold).toEqual(0n);
+
+      // Verify that the private state is held off-chain in private storage
+      const privateState = simulator.getPrivateState();
+      expect(privateState.investorOwnership).toEqual(17_430n);
+      expect(privateState.investmentAmount).toEqual(500_000n);
+      expect(privateState.rentalIncome).toEqual(45_000n);
+    });
+  });
+
+  describe('Requirement 1: Valid Ownership Threshold Proof (PASS)', () => {
+    it('successfully verifies proof when investor ownership satisfies the threshold', async () => {
+      // Investor privately owns 17,430 shares (17.43%)
+      // Public threshold required: 10,000 shares (10%)
+      const requiredThreshold = 10_000n;
+      const updatedLedger = await simulator.proveOwnershipThreshold(requiredThreshold);
+
+      // Claim is verified, public counter increments, threshold is recorded
+      expect(updatedLedger.verifiedOwnershipCount).toEqual(1n);
+      expect(updatedLedger.lastVerifiedThreshold).toEqual(10_000n);
+
+      // Crucial privacy guarantee: the investor's exact share count (17,430) is NOT in the ledger
+      expect((updatedLedger as any).investorOwnership).toBeUndefined();
+    });
+  });
+
+  describe('Requirement 2: Invalid Ownership Threshold Proof (FAIL)', () => {
+    it('rejects proof and throws contract assertion error when ownership is below threshold', async () => {
+      // Set investor ownership to 7,000 shares (7%)
+      simulator.setPrivateState({ investorOwnership: 7_000n });
+
+      // Required threshold: 10,000 shares (10%)
+      const requiredThreshold = 10_000n;
+
+      await expect(
+        simulator.proveOwnershipThreshold(requiredThreshold)
+      ).rejects.toThrow('Ownership threshold requirement not satisfied');
+
+      // The public counter must NOT have incremented
+      expect(simulator.getLedger().verifiedOwnershipCount).toEqual(0n);
+    });
+  });
+
+  describe('Requirement 3: Eligibility & Compliance Condition (PASS & FAIL)', () => {
+    it('successfully proves regulatory accreditation when investment meets or exceeds minimum', async () => {
+      // Investor privately invested $500,000
+      // Required minimum: $250,000
+      const updatedLedger = await simulator.proveCompliance(250_000n);
+
+      expect(updatedLedger.verifiedComplianceCount).toEqual(1n);
+
+      // Crucial privacy guarantee: the exact investment amount ($500,000) is NOT in the ledger
+      expect((updatedLedger as any).investmentAmount).toBeUndefined();
+    });
+
+    it('rejects compliance proof when investment is below minimum requirement', async () => {
+      // Investor only invested $150,000
+      simulator.setPrivateState({ investmentAmount: 150_000n });
+
+      // Required minimum: $250,000
+      await expect(
+        simulator.proveCompliance(250_000n)
+      ).rejects.toThrow('Investment does not meet minimum compliance threshold');
+
+      expect(simulator.getLedger().verifiedComplianceCount).toEqual(0n);
+    });
+  });
+
+  describe('Requirement 4: Confidential Rental Income Proof', () => {
+    it('verifies rental yield claim without revealing private rental earnings', async () => {
+      // Investor privately earns $45,000 rental income
+      // Claim: Rental income >= $30,000
+      const updatedLedger = await simulator.proveRentalClaim(30_000n);
+
+      expect(updatedLedger.verifiedRentalYieldCount).toEqual(1n);
+      expect((updatedLedger as any).rentalIncome).toBeUndefined();
+    });
+
+    it('rejects rental yield claim if earnings are below claimed benchmark', async () => {
+      // Claim: Rental income >= $60,000 (actual is 45,000)
+      await expect(
+        simulator.proveRentalClaim(60_000n)
+      ).rejects.toThrow('Rental income does not meet required yield threshold');
+
+      expect(simulator.getLedger().verifiedRentalYieldCount).toEqual(0n);
+    });
+  });
+
+  describe('Cryptographic Identity Commitment', () => {
+    it('computes deterministic investor identity commitment without exposing secret key', () => {
+      const commitment1 = pureCircuits.computeInvestorCommitment(investorSecretKey, propertyId);
+      const commitment2 = pureCircuits.computeInvestorCommitment(investorSecretKey, propertyId);
+
+      expect(commitment1).toEqual(commitment2);
+      expect(commitment1.length).toBe(32);
+    });
+  });
+});
