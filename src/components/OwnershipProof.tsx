@@ -99,7 +99,7 @@ export const OwnershipProof: React.FC<OwnershipProofProps> = ({
             <div className="flex items-center gap-2 text-slate-300">
               <Lock className="w-4 h-4 text-emerald-400" />
               <span>
-                Your Shielded Private Holding: <strong className="text-white">{actualOwnershipPercentage.toFixed(2)}%</strong> ({holding?.ownershipShares.toLocaleString()} shares)
+                Your Shielded Private Holding: <strong className="text-white">{actualOwnershipPercentage.toFixed(2)}%</strong> ({holding?.ownershipShares != null ? holding.ownershipShares.toLocaleString() : '0'} shares)
               </span>
             </div>
             <span className="text-[10px] font-mono text-emerald-400/90 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">

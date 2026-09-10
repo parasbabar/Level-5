@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Award, Lock, CheckCircle2, RefreshCw, AlertCircle, Info } from 'lucide-react';
 import type { PropertyMetadata, InvestorPrivateHolding, VerificationResult } from '../utils/contract';
 
@@ -34,7 +34,7 @@ export const ComplianceProof: React.FC<ComplianceProofProps> = ({
   const [lastResult, setLastResult] = useState<VerificationResult | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialMode) {
       setProofMode(initialMode);
     }
@@ -160,14 +160,14 @@ export const ComplianceProof: React.FC<ComplianceProofProps> = ({
                   <>
                     Your Private Investment Capital:{' '}
                     <strong className="text-white">
-                      ${holding?.investmentAmountUsd.toLocaleString()}
+                      ${holding?.investmentAmountUsd != null ? holding.investmentAmountUsd.toLocaleString() : '0'}
                     </strong>
                   </>
                 ) : (
                   <>
                     Your Confidential Rental Income:{' '}
                     <strong className="text-white">
-                      ${holding?.annualRentalIncomeUsd.toLocaleString()}/yr
+                      ${holding?.annualRentalIncomeUsd != null ? holding.annualRentalIncomeUsd.toLocaleString() : '0'}/yr
                     </strong>
                   </>
                 )}

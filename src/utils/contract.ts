@@ -97,8 +97,30 @@ export const DEMO_PROPERTIES: PropertyMetadata[] = [
   },
 ];
 
-// Default Private Investor Portfolio (Client-Side Storage) - Empty until acquired by user
-export const DEFAULT_INVESTOR_PORTFOLIO: Record<string, InvestorPrivateHolding> = {};
+// Default Private Investor Portfolio (Client-Side Storage / Private Witness State)
+export const DEFAULT_INVESTOR_PORTFOLIO: Record<string, InvestorPrivateHolding> = {
+  'PROP-001': {
+    propertyId: 'PROP-001',
+    ownershipShares: 12_500n, // 12.5% of 100,000 total shares
+    investmentAmountUsd: 500_000n,
+    annualRentalIncomeUsd: 45_000n,
+    secretKey: new Uint8Array(32).fill(42),
+  },
+  'PROP-002': {
+    propertyId: 'PROP-002',
+    ownershipShares: 35_000n, // 14.0% of 250,000 total shares
+    investmentAmountUsd: 850_000n,
+    annualRentalIncomeUsd: 78_000n,
+    secretKey: new Uint8Array(32).fill(77),
+  },
+  'PROP-003': {
+    propertyId: 'PROP-003',
+    ownershipShares: 0n,
+    investmentAmountUsd: 0n,
+    annualRentalIncomeUsd: 0n,
+    secretKey: new Uint8Array(32).fill(99),
+  },
+};
 
 export interface PrivEstatePrivateState {
   investorOwnership: bigint;
