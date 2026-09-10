@@ -5,7 +5,7 @@
  * network state, circuit execution pipeline, and verification results.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { InitialAPI, ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 import {
   DEMO_PROPERTIES,
@@ -81,7 +81,7 @@ export function useMidnight() {
   });
 
   // Ref to hold the connected API for use in polling without stale closures
-  const connectedApiRef = React.useRef<ConnectedAPI | null>(null);
+  const connectedApiRef = useRef<ConnectedAPI | null>(null);
 
   const [connectedApi, setConnectedApi] = useState<ConnectedAPI | null>(null);
 
