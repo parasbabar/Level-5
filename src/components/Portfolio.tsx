@@ -37,6 +37,10 @@ export const Portfolio: React.FC<PortfolioProps> = ({
     setEditingPropId(null);
   };
 
+  const propertiesWithHoldings = properties.filter(
+    (prop) => portfolio[prop.id] && portfolio[prop.id].ownershipShares > 0n
+  );
+
   return (
     <div className="space-y-6">
       {/* Header with Privacy Guarantee & Shield Toggle */}
@@ -54,35 +58,44 @@ export const Portfolio: React.FC<PortfolioProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => setShowSensitiveData(!showSensitiveData)}
-          className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-2 transition"
-        >
-          {showSensitiveData ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-          <span>{showSensitiveData ? 'Mask Private Values' : 'Reveal Shielded Values'}</span>
-        </button>
+        {propertiesWithHoldings.length > 0 && (
+          <button
+            onClick={() => setShowSensitiveData(!showSensitiveData)}
+            className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-2 transition"
+          >
+            {showSensitiveData ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            <span>{showSensitiveData ? 'Mask Private Values' : 'Reveal Shielded Values'}</span>
+          </button>
+        )}
       </div>
 
-      {/* Holdings Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-        <div className="p-4 border-b border-slate-800 bg-slate-950/40 flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-            Investor Holdings by Property
-          </span>
-          <span className="text-[11px] font-mono text-indigo-400">
-            Client-side Witness State
-          </span>
+      {propertiesWithHoldings.length === 0 ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-12 text-center text-slate-400 space-y-4">
+          <div className="w-14 h-14 mx-auto rounded-full bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-500">
+            <Lock className="w-7 h-7" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-slate-200">No private holdings yet.</h3>
+            <p className="text-xs max-w-md mx-auto text-slate-400 mt-1">
+              You have not acquired fractional shares in any tokenized property yet. Visit the RWA Marketplace to acquire shares through your connected Midnight Lace Wallet.
+            </p>
+          </div>
         </div>
+      ) : (
+        /* Holdings Table */
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+          <div className="p-4 border-b border-slate-800 bg-slate-950/40 flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+              Investor Holdings by Property ({propertiesWithHoldings.length})
+            </span>
+            <span className="text-[11px] font-mono text-indigo-400">
+              Client-side Witness State
+            </span>
+          </div>
 
-        <div className="divide-y divide-slate-800">
-          {properties.map((prop) => {
-            const holding = portfolio[prop.id] || {
-              propertyId: prop.id,
-              ownershipShares: 0n,
-              investmentAmountUsd: 0n,
-              annualRentalIncomeUsd: 0n,
-              secretKey: new Uint8Array(32),
-            };
+          <div className="divide-y divide-slate-800">
+            {propertiesWithHoldings.map((prop) => {
+              const holding = portfolio[prop.id];
 
             const isEditing = editingPropId === prop.id;
             const ownershipPercentage =
@@ -219,8 +232,9 @@ export const Portfolio: React.FC<PortfolioProps> = ({
               </div>
             );
           })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

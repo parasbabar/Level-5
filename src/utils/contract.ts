@@ -97,30 +97,8 @@ export const DEMO_PROPERTIES: PropertyMetadata[] = [
   },
 ];
 
-// Default Private Investor Portfolio (Client-Side Storage)
-export const DEFAULT_INVESTOR_PORTFOLIO: Record<string, InvestorPrivateHolding> = {
-  'PROP-001': {
-    propertyId: 'PROP-001',
-    ownershipShares: 17_430n, // 17.43% of 100,000 total shares
-    investmentAmountUsd: 500_000n,
-    annualRentalIncomeUsd: 45_000n,
-    secretKey: new Uint8Array(32).fill(42),
-  },
-  'PROP-002': {
-    propertyId: 'PROP-002',
-    ownershipShares: 35_000n, // 14.0% of 250,000 total shares
-    investmentAmountUsd: 850_000n,
-    annualRentalIncomeUsd: 78_000n,
-    secretKey: new Uint8Array(32).fill(77),
-  },
-  'PROP-003': {
-    propertyId: 'PROP-003',
-    ownershipShares: 0n,
-    investmentAmountUsd: 0n,
-    annualRentalIncomeUsd: 0n,
-    secretKey: new Uint8Array(32).fill(99),
-  },
-};
+// Default Private Investor Portfolio (Client-Side Storage) - Empty until acquired by user
+export const DEFAULT_INVESTOR_PORTFOLIO: Record<string, InvestorPrivateHolding> = {};
 
 export interface PrivEstatePrivateState {
   investorOwnership: bigint;
@@ -159,7 +137,11 @@ export async function initializeContractInstance(
     property.complianceMinimumUsd
   );
 
-  const contractAddress = sampleContractAddress();
+  const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined;
+  const configuredAddress = metaEnv && metaEnv.VITE_CONTRACT_ADDRESS
+    ? metaEnv.VITE_CONTRACT_ADDRESS
+    : null;
+  const contractAddress = configuredAddress || sampleContractAddress();
   const circuitContext = createCircuitContext(
     'privestate',
     contractAddress,
