@@ -1,5 +1,5 @@
-import React from 'react';
-import { Wallet, ShieldCheck, AlertCircle, ExternalLink, RefreshCw, CheckCircle2, Lock } from 'lucide-react';
+import React, { useState } from 'react';
+import { Wallet, ShieldCheck, AlertCircle, ExternalLink, RefreshCw, CheckCircle2, Lock, Copy, Check } from 'lucide-react';
 import type { WalletConnectionStatus } from '../hooks/useMidnight';
 
 interface WalletConnectProps {
@@ -25,6 +25,15 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({
   onConnect,
   onDisconnect,
 }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyAddress = () => {
+    if (shieldedAddress) {
+      navigator.clipboard.writeText(shieldedAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl text-slate-100">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -63,9 +72,22 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({
                   <span>{walletSyncing ? 'Wallet Connected — Syncing…' : 'Wallet Connected'}</span>
                 </div>
                 {shieldedAddress ? (
-                  <span className="text-[11px] font-mono text-slate-400">
-                    {shieldedAddress.slice(0, 8)}...{shieldedAddress.slice(-6)}
-                  </span>
+                  <div className="flex items-center gap-1.5 justify-end">
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {shieldedAddress.slice(0, 8)}...{shieldedAddress.slice(-6)}
+                    </span>
+                    <button
+                      onClick={handleCopyAddress}
+                      title="Copy full shielded address for faucet"
+                      className="p-0.5 rounded text-slate-400 hover:text-white transition"
+                    >
+                      {copied ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3" />
+                      )}
+                    </button>
+                  </div>
                 ) : walletSyncing ? (
                   <span className="text-[11px] font-mono text-amber-400 flex items-center gap-1">
                     <RefreshCw className="w-2.5 h-2.5 animate-spin" />
