@@ -14,9 +14,26 @@
  *   NODE_URI: https://rpc.preprod.midnight.network
  */
 
-import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
+
+// Zero-dependency native environment loading
+if (typeof process.loadEnvFile === 'function') {
+  try {
+    process.loadEnvFile();
+  } catch {}
+} else if (fs.existsSync('.env')) {
+  const envContent = fs.readFileSync('.env', 'utf8');
+  envContent.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+      const [k, ...v] = trimmed.split('=');
+      if (k && !process.env[k.trim()]) {
+        process.env[k.trim()] = v.join('=').trim().replace(/^["']|["']$/g, '');
+      }
+    }
+  });
+}
 
 console.log('====================================================');
 console.log('  PrivEstate — Midnight Preprod Contract Deployment  ');
