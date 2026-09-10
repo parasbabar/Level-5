@@ -7,6 +7,7 @@ interface WalletConnectProps {
   walletName: string | null;
   walletIcon: string | null;
   shieldedAddress: string | null;
+  walletSyncing: boolean;
   networkId: string;
   error: string | null;
   onConnect: () => void;
@@ -18,6 +19,7 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({
   walletName,
   walletIcon,
   shieldedAddress,
+  walletSyncing,
   networkId,
   error,
   onConnect,
@@ -53,18 +55,23 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({
 
         {/* Right: Actions & State */}
         <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-          {status === 'connected' ? (
+          {status === 'connected' || status === 'syncing' ? (
             <div className="flex items-center gap-3">
               <div className="text-right">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Wallet Connected</span>
+                  <span>{walletSyncing ? 'Wallet Connected — Syncing…' : 'Wallet Connected'}</span>
                 </div>
-                {shieldedAddress && (
+                {shieldedAddress ? (
                   <span className="text-[11px] font-mono text-slate-400">
                     {shieldedAddress.slice(0, 8)}...{shieldedAddress.slice(-6)}
                   </span>
-                )}
+                ) : walletSyncing ? (
+                  <span className="text-[11px] font-mono text-amber-400 flex items-center gap-1">
+                    <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                    Waiting for sync…
+                  </span>
+                ) : null}
               </div>
               <button
                 onClick={onDisconnect}
@@ -92,6 +99,23 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({
           )}
         </div>
       </div>
+
+      {/* Syncing Banner */}
+      {walletSyncing && (
+        <div className="mt-4 p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-300">
+          <div className="flex items-start gap-2.5">
+            <RefreshCw className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 animate-spin" />
+            <div>
+              <p className="font-semibold text-amber-200">Midnight Wallet Syncing with Preprod</p>
+              <p className="text-amber-300/80 mt-1">
+                Your wallet is connected but still syncing with the Midnight Preprod network.
+                Open the <strong className="text-amber-200">1AM (Midnight Lace)</strong> extension and wait for the sync bar to complete.
+                Your shielded address will appear here automatically once ready — no action needed.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error / Not Detected Alerts */}
       {status === 'wallet-not-detected' && (

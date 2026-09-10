@@ -5,7 +5,7 @@
  * network state, circuit execution pipeline, and verification results.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { InitialAPI, ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 import {
   DEMO_PROPERTIES,
@@ -28,6 +28,7 @@ export type WalletConnectionStatus =
   | 'disconnected'
   | 'connecting'
   | 'connected'
+  | 'syncing'
   | 'wallet-not-detected'
   | 'error';
 
@@ -48,6 +49,7 @@ export interface MidnightState {
   walletIcon: string | null;
   networkId: string;
   shieldedAddress: string | null;
+  walletSyncing: boolean;
   error: string | null;
   isProofGenerating: boolean;
   currentProofStatus: string | null;
@@ -67,6 +69,7 @@ export function useMidnight() {
     walletIcon: null,
     networkId: PREPROD_NETWORK_ID,
     shieldedAddress: null,
+    walletSyncing: false,
     error: null,
     isProofGenerating: false,
     currentProofStatus: null,
@@ -76,6 +79,9 @@ export function useMidnight() {
     transactionTxHash: null,
     transactionError: null,
   });
+
+  // Ref to hold the connected API for use in polling without stale closures
+  const connectedApiRef = React.useRef<ConnectedAPI | null>(null);
 
   const [connectedApi, setConnectedApi] = useState<ConnectedAPI | null>(null);
 
@@ -100,6 +106,41 @@ export function useMidnight() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Poll for shielded address after wallet connects (handles syncing state)
+  const pollForShieldedAddress = useCallback(async (api: ConnectedAPI) => {
+    const MAX_ATTEMPTS = 60; // 5 minutes max
+    const INTERVAL_MS = 5000;
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        if ('getShieldedAddresses' in api && typeof (api as any).getShieldedAddresses === 'function') {
+          const addrs = await (api as any).getShieldedAddresses();
+          const address = addrs.shieldedCoinPublicKey || addrs.shieldedEncryptionPublicKey || null;
+          if (address) {
+            setState((prev) => ({
+              ...prev,
+              status: 'connected',
+              shieldedAddress: address,
+              walletSyncing: false,
+            }));
+            return;
+          }
+        }
+      } catch (err: any) {
+        const isSyncing = err?.message?.toLowerCase().includes('sync');
+        if (!isSyncing) {
+          // Non-sync error — stop polling
+          setState((prev) => ({ ...prev, walletSyncing: false }));
+          return;
+        }
+        // Still syncing — continue
+      }
+      await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS));
+    }
+    // Timed out
+    setState((prev) => ({ ...prev, walletSyncing: false }));
+  }, []);
+
   // Real wallet connection using Midnight DApp Connector standard
   const connectWallet = useCallback(async () => {
     if (typeof window === 'undefined' || !window.midnight) {
@@ -122,25 +163,39 @@ export function useMidnight() {
       const initialApi = wallets[0];
       const api = await initialApi.connect(PREPROD_NETWORK_ID);
 
+      setConnectedApi(api);
+      connectedApiRef.current = api;
+
       let address: string | null = null;
+      let isSyncing = false;
+
       try {
         if ('getShieldedAddresses' in api && typeof (api as any).getShieldedAddresses === 'function') {
           const addrs = await (api as any).getShieldedAddresses();
           address = addrs.shieldedCoinPublicKey || addrs.shieldedEncryptionPublicKey || null;
         }
-      } catch (err) {
-        console.warn('Could not retrieve shielded address from connected wallet:', err);
+      } catch (err: any) {
+        if (err?.message?.toLowerCase().includes('sync')) {
+          isSyncing = true;
+        } else {
+          console.warn('Could not retrieve shielded address from connected wallet:', err);
+        }
       }
 
-      setConnectedApi(api);
       setState((prev) => ({
         ...prev,
-        status: 'connected',
+        status: isSyncing ? 'syncing' : 'connected',
         walletName: initialApi.name,
         walletIcon: initialApi.icon,
         shieldedAddress: address,
+        walletSyncing: isSyncing,
         error: null,
       }));
+
+      // If wallet is syncing, start polling in the background
+      if (isSyncing) {
+        pollForShieldedAddress(api);
+      }
     } catch (err: any) {
       console.error('Midnight wallet connection error:', err);
       setState((prev) => ({
@@ -149,14 +204,16 @@ export function useMidnight() {
         error: err.message || 'Failed to connect to Midnight wallet.',
       }));
     }
-  }, []);
+  }, [pollForShieldedAddress]);
 
   const disconnectWallet = useCallback(() => {
     setConnectedApi(null);
+    connectedApiRef.current = null;
     setState((prev) => ({
       ...prev,
       status: 'disconnected',
       shieldedAddress: null,
+      walletSyncing: false,
       error: null,
     }));
   }, []);

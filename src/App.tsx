@@ -46,6 +46,7 @@ export function App() {
           walletName={midnight.walletName}
           walletIcon={midnight.walletIcon}
           shieldedAddress={midnight.shieldedAddress}
+          walletSyncing={midnight.walletSyncing}
           networkId={midnight.networkId}
           error={midnight.error}
           onConnect={midnight.connectWallet}
