@@ -13,6 +13,7 @@ export function App() {
   const midnight = useMidnight();
   const [activeTab, setActiveTab] = useState<ActiveTab>('marketplace');
   const [selectedProperty, setSelectedProperty] = useState<PropertyMetadata | null>(null);
+  const [complianceMode, setComplianceMode] = useState<'compliance' | 'rental'>('compliance');
 
   const handleSelectPropertyForProof = (
     property: PropertyMetadata,
@@ -22,9 +23,11 @@ export function App() {
     if (type === 'ownership') {
       setActiveTab('ownership');
     } else if (type === 'compliance') {
+      setComplianceMode('compliance');
       setActiveTab('compliance');
     } else {
-      setActiveTab('ownership');
+      setComplianceMode('rental');
+      setActiveTab('compliance');
     }
   };
 
@@ -87,6 +90,8 @@ export function App() {
             proofStatus={midnight.currentProofStatus}
             onSelectProperty={setSelectedProperty}
             onGenerateProof={midnight.proveCompliance}
+            onGenerateRentalProof={midnight.proveRentalYield}
+            initialMode={complianceMode}
           />
         )}
 

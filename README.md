@@ -14,7 +14,7 @@
 
 | Network | Address                             |
 | ------- | ----------------------------------- |
-| Preprod | [TO BE ADDED AFTER REAL DEPLOYMENT] |
+| Preprod | [TO BE ADDED AFTER DEPLOYMENT] |
 
 ## What This Product Does
 
