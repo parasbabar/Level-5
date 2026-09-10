@@ -10,6 +10,7 @@ interface OwnershipProofProps {
   proofStatus: string | null;
   onSelectProperty: (property: PropertyMetadata) => void;
   onGenerateProof: (property: PropertyMetadata, thresholdPercentage: number) => Promise<VerificationResult>;
+  onNavigateToMarketplace?: () => void;
 }
 
 export const OwnershipProof: React.FC<OwnershipProofProps> = ({
@@ -20,9 +21,11 @@ export const OwnershipProof: React.FC<OwnershipProofProps> = ({
   proofStatus,
   onSelectProperty,
   onGenerateProof,
+  onNavigateToMarketplace,
 }) => {
   const currentProperty = selectedProperty || properties[0];
   const holding = portfolio[currentProperty.id];
+  const hasHoldings = Boolean(holding && holding.ownershipShares > 0n);
 
   const [threshold, setThreshold] = useState<number>(10);
   const [lastResult, setLastResult] = useState<VerificationResult | null>(null);
@@ -34,6 +37,7 @@ export const OwnershipProof: React.FC<OwnershipProofProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasHoldings) return;
     setExecutionError(null);
     setLastResult(null);
 
@@ -107,6 +111,30 @@ export const OwnershipProof: React.FC<OwnershipProofProps> = ({
             </span>
           </div>
 
+          {/* Zero Holdings Guidance Callout */}
+          {!hasHoldings && (
+            <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="text-white block">No Private Shares Held in {currentProperty.name}</strong>
+                  <span className="text-slate-300 mt-0.5 block">
+                    Zero-Knowledge circuits require private witness inputs. Acquire fractional shares through your connected Midnight Lace Wallet in the RWA Marketplace before generating an ownership proof.
+                  </span>
+                </div>
+              </div>
+              {onNavigateToMarketplace && (
+                <button
+                  type="button"
+                  onClick={onNavigateToMarketplace}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs whitespace-nowrap shadow transition shrink-0"
+                >
+                  Acquire Shares
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Threshold Selection */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -124,11 +152,12 @@ export const OwnershipProof: React.FC<OwnershipProofProps> = ({
                   key={val}
                   type="button"
                   onClick={() => setThreshold(val)}
+                  disabled={!hasHoldings}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
                     threshold === val
                       ? 'bg-indigo-600 text-white border-indigo-500'
                       : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                  }`}
+                  } ${!hasHoldings ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {val}%
                 </button>
@@ -141,21 +170,29 @@ export const OwnershipProof: React.FC<OwnershipProofProps> = ({
               max="50"
               step="1"
               value={threshold}
+              disabled={!hasHoldings}
               onChange={(e) => setThreshold(Number(e.target.value))}
-              className="w-full accent-indigo-500 bg-slate-800 h-2 rounded-lg cursor-pointer"
+              className={`w-full accent-indigo-500 bg-slate-800 h-2 rounded-lg cursor-pointer ${
+                !hasHoldings ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             />
           </div>
 
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isGenerating}
+            disabled={isGenerating || !hasHoldings}
             className="w-full py-3 px-4 rounded-lg bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white font-semibold text-sm shadow-lg shadow-indigo-950/40 flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isGenerating ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 <span>Evaluating Midnight Circuit...</span>
+              </>
+            ) : !hasHoldings ? (
+              <>
+                <Lock className="w-4 h-4" />
+                <span>Holdings Required to Prove (0 shares held)</span>
               </>
             ) : (
               <>

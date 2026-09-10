@@ -57,7 +57,18 @@ export function App() {
         {activeTab === 'marketplace' && (
           <PropertyMarketplace
             properties={midnight.properties}
+            walletStatus={midnight.status}
+            transactionStatus={midnight.transactionStatus}
+            transactionTxHash={midnight.transactionTxHash}
+            transactionError={midnight.transactionError}
             onSelectPropertyForProof={handleSelectPropertyForProof}
+            onExecutePurchase={midnight.executeSharePurchase}
+            onResetTransaction={midnight.resetTransactionState}
+            onNavigateToPortfolio={() => setActiveTab('portfolio')}
+            onNavigateToOwnershipProof={(property) => {
+              setSelectedProperty(property);
+              setActiveTab('ownership');
+            }}
           />
         )}
 
@@ -79,6 +90,7 @@ export function App() {
             proofStatus={midnight.currentProofStatus}
             onSelectProperty={setSelectedProperty}
             onGenerateProof={midnight.proveOwnership}
+            onNavigateToMarketplace={() => setActiveTab('marketplace')}
           />
         )}
 
@@ -93,6 +105,7 @@ export function App() {
             onGenerateProof={midnight.proveCompliance}
             onGenerateRentalProof={midnight.proveRentalYield}
             initialMode={complianceMode}
+            onNavigateToMarketplace={() => setActiveTab('marketplace')}
           />
         )}
 
