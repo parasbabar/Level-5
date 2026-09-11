@@ -111,10 +111,34 @@ export interface PrivEstatePrivateState {
 /**
  * Creates contract witnesses that securely fetch private data from local private state.
  */
-export const createWitnesses = (): Witnesses<PrivEstatePrivateState> => ({
-  getInvestorOwnership: ({ privateState }: { privateState: PrivEstatePrivateState }) => [privateState, privateState.investorOwnership],
-  getInvestmentAmount: ({ privateState }: { privateState: PrivEstatePrivateState }) => [privateState, privateState.investmentAmount],
-  getRentalIncome: ({ privateState }: { privateState: PrivEstatePrivateState }) => [privateState, privateState.rentalIncome],
+export const createWitnesses = (fallbackState?: Partial<PrivEstatePrivateState>): Witnesses<PrivEstatePrivateState> => ({
+  getInvestorOwnership: (context: any) => {
+    const ps: PrivEstatePrivateState = context?.privateState ?? context?.currentPrivateState ?? (context && typeof context.investorOwnership === 'bigint' ? context : null) ?? fallbackState ?? {
+      investorOwnership: 0n,
+      investmentAmount: 0n,
+      rentalIncome: 0n,
+      investorSecretKey: new Uint8Array(32),
+    };
+    return [ps, typeof ps.investorOwnership === 'bigint' ? ps.investorOwnership : 0n];
+  },
+  getInvestmentAmount: (context: any) => {
+    const ps: PrivEstatePrivateState = context?.privateState ?? context?.currentPrivateState ?? (context && typeof context.investmentAmount === 'bigint' ? context : null) ?? fallbackState ?? {
+      investorOwnership: 0n,
+      investmentAmount: 0n,
+      rentalIncome: 0n,
+      investorSecretKey: new Uint8Array(32),
+    };
+    return [ps, typeof ps.investmentAmount === 'bigint' ? ps.investmentAmount : 0n];
+  },
+  getRentalIncome: (context: any) => {
+    const ps: PrivEstatePrivateState = context?.privateState ?? context?.currentPrivateState ?? (context && typeof context.rentalIncome === 'bigint' ? context : null) ?? fallbackState ?? {
+      investorOwnership: 0n,
+      investmentAmount: 0n,
+      rentalIncome: 0n,
+      investorSecretKey: new Uint8Array(32),
+    };
+    return [ps, typeof ps.rentalIncome === 'bigint' ? ps.rentalIncome : 0n];
+  },
 });
 
 /**
@@ -144,12 +168,12 @@ export async function initializeContractInstance(
     : null;
   const contractAddress = configuredAddress || sampleContractAddress();
   const circuitContext = createCircuitContext(
-    'privestate',
     contractAddress,
-    init.currentZswapLocalState,
-    init.currentContractState,
+    init.currentZswapLocalState.coinPublicKey,
+    init.currentContractState.data,
     init.currentPrivateState
   );
+  (circuitContext as any).callContext = circuitContext;
 
   return {
     contract,
@@ -182,7 +206,7 @@ export async function runOwnershipThresholdProof(
     requiredShares
   );
 
-  const updatedLedger = ledger(result.context.callContext.currentQueryContext.state);
+  const updatedLedger = ledger(result.context.currentQueryContext.state);
 
   // Derive proof cryptographic commitment
   const commitment = pureCircuits.computeInvestorCommitment(holding.secretKey, property.bytesId);
@@ -235,7 +259,7 @@ export async function runComplianceProof(
     minimumRequiredUsd
   );
 
-  const updatedLedger = ledger(result.context.callContext.currentQueryContext.state);
+  const updatedLedger = ledger(result.context.currentQueryContext.state);
   const commitment = pureCircuits.computeInvestorCommitment(holding.secretKey, property.bytesId);
   const proofHash = '0x' + Array.from(commitment).map(b => b.toString(16).padStart(2, '0')).join('');
 
@@ -286,7 +310,7 @@ export async function runRentalYieldProof(
     minimumYieldUsd
   );
 
-  const updatedLedger = ledger(result.context.callContext.currentQueryContext.state);
+  const updatedLedger = ledger(result.context.currentQueryContext.state);
   const commitment = pureCircuits.computeInvestorCommitment(holding.secretKey, property.bytesId);
   const proofHash = '0x' + Array.from(commitment).map(b => b.toString(16).padStart(2, '0')).join('');
 

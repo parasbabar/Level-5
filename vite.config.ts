@@ -18,6 +18,20 @@ export default defineConfig({
   ],
   server: {
     port: 5173,
+    fs: {
+      allow: ['.'],
+    },
+  },
+  optimizeDeps: {
+    include: [
+      '@midnight-ntwrk/compact-runtime',
+      '@midnight-ntwrk/compact-js',
+      '@midnight-ntwrk/midnight-js-contracts',
+      '@midnight-ntwrk/midnight-js-types',
+      '@midnight-ntwrk/midnight-js-network-id',
+      '@midnight-ntwrk/midnight-js-indexer-public-data-provider',
+      '@midnight-ntwrk/dapp-connector-api',
+    ],
   },
   build: {
     target: 'esnext',

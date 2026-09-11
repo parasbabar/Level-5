@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useMidnight } from './hooks/useMidnight';
+import { useDeployContract } from './hooks/useDeployContract';
 import { Layout, type ActiveTab } from './components/Layout';
 import { WalletConnect } from './components/WalletConnect';
+import { DeployContract } from './components/DeployContract';
 import { PropertyMarketplace } from './components/PropertyMarketplace';
 import { Portfolio } from './components/Portfolio';
 import { OwnershipProof } from './components/OwnershipProof';
@@ -11,6 +13,7 @@ import type { PropertyMetadata } from './utils/contract';
 
 export function App() {
   const midnight = useMidnight();
+  const deploy = useDeployContract(midnight.connectedApi);
   const [activeTab, setActiveTab] = useState<ActiveTab>('marketplace');
   const [selectedProperty, setSelectedProperty] = useState<PropertyMetadata | null>(null);
   const [complianceMode, setComplianceMode] = useState<'compliance' | 'rental'>('compliance');
@@ -54,6 +57,19 @@ export function App() {
         />
 
         {/* Tab Content */}
+        {activeTab === 'deploy' && (
+          <DeployContract
+            walletStatus={midnight.status}
+            shieldedAddress={midnight.shieldedAddress}
+            deployState={deploy.state}
+            onConnectWallet={midnight.connectWallet}
+            onDeploy={deploy.deploy}
+            onReset={deploy.reset}
+            onClearAndRedeploy={deploy.clearAndRedeploy}
+            onNavigateToMarketplace={() => setActiveTab('marketplace')}
+          />
+        )}
+
         {activeTab === 'marketplace' && (
           <PropertyMarketplace
             properties={midnight.properties}

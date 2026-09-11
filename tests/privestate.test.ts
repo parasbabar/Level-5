@@ -70,27 +70,31 @@ export class PrivEstateSimulator {
 
     const contractAddress = sampleContractAddress();
     const circuitContext = createCircuitContext(
-      'privestate',
       contractAddress,
-      currentZswapLocalState,
-      currentContractState,
+      currentZswapLocalState.coinPublicKey,
+      currentContractState.data,
       currentPrivateState
     );
+    (circuitContext as any).callContext = circuitContext;
 
     return new PrivEstateSimulator(contract, circuitContext);
   }
 
+  private get ctx(): any {
+    return this.circuitContext;
+  }
+
   public getLedger(): Ledger {
-    return ledger(this.circuitContext.callContext.currentQueryContext.state);
+    return ledger(this.ctx.currentQueryContext.state);
   }
 
   public getPrivateState(): PrivEstatePrivateState {
-    return this.circuitContext.callContext.currentPrivateState as PrivEstatePrivateState;
+    return this.ctx.currentPrivateState as PrivEstatePrivateState;
   }
 
   public setPrivateState(state: Partial<PrivEstatePrivateState>) {
-    const prev = this.circuitContext.callContext.currentPrivateState as PrivEstatePrivateState;
-    this.circuitContext.callContext.currentPrivateState = {
+    const prev = this.ctx.currentPrivateState as PrivEstatePrivateState;
+    this.ctx.currentPrivateState = {
       ...prev,
       ...state,
     };
@@ -102,7 +106,8 @@ export class PrivEstateSimulator {
       requiredShares
     );
     this.circuitContext = result.context;
-    return ledger(this.circuitContext.callContext.currentQueryContext.state);
+    (this.circuitContext as any).callContext = this.circuitContext;
+    return ledger(this.circuitContext.currentQueryContext.state);
   }
 
   public async proveCompliance(minimumRequired: bigint): Promise<Ledger> {
@@ -111,7 +116,8 @@ export class PrivEstateSimulator {
       minimumRequired
     );
     this.circuitContext = result.context;
-    return ledger(this.circuitContext.callContext.currentQueryContext.state);
+    (this.circuitContext as any).callContext = this.circuitContext;
+    return ledger(this.circuitContext.currentQueryContext.state);
   }
 
   public async proveRentalClaim(minimumYield: bigint): Promise<Ledger> {
@@ -120,7 +126,8 @@ export class PrivEstateSimulator {
       minimumYield
     );
     this.circuitContext = result.context;
-    return ledger(this.circuitContext.callContext.currentQueryContext.state);
+    (this.circuitContext as any).callContext = this.circuitContext;
+    return ledger(this.circuitContext.currentQueryContext.state);
   }
 }
 

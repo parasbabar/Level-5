@@ -1,8 +1,8 @@
 import React from 'react';
-import { Building2, Shield, Lock, FileCheck, Award, Sparkles, ExternalLink } from 'lucide-react';
+import { Building2, Shield, Lock, FileCheck, Award, Sparkles, ExternalLink, Rocket } from 'lucide-react';
 import type { WalletConnectionStatus } from '../hooks/useMidnight';
 
-export type ActiveTab = 'marketplace' | 'portfolio' | 'ownership' | 'compliance' | 'verifier';
+export type ActiveTab = 'deploy' | 'marketplace' | 'portfolio' | 'ownership' | 'compliance' | 'verifier';
 
 interface LayoutProps {
   activeTab: ActiveTab;
@@ -22,6 +22,7 @@ export const Layout: React.FC<LayoutProps> = ({
   children,
 }) => {
   const tabs = [
+    { id: 'deploy', label: 'Deploy Contract', icon: Rocket },
     { id: 'marketplace', label: 'RWA Marketplace', icon: Building2 },
     { id: 'portfolio', label: 'Shielded Portfolio', icon: Lock },
     { id: 'ownership', label: 'Ownership Proof', icon: Shield },

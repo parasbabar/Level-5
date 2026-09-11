@@ -6,15 +6,20 @@
 
 ## Live Demo
 
-```text
-[PREPROD DEMO URL — TO BE ADDED]
+Run locally against Midnight Preprod in under 60 seconds:
+```bash
+git clone https://github.com/parasbabar/level4.git
+cd level4
+npm install
+npm run dev
+# Open http://localhost:5173 and connect your Midnight Lace Wallet (set to Preprod)
 ```
 
 ## Contract Address
 
-| Network | Address                             |
+| Network | Address |
 | ------- | ----------------------------------- |
-| Preprod | [TO BE ADDED AFTER DEPLOYMENT] |
+| Preprod | `2e5e3eea72733c09f794677002d0a0840163b3b3da1d6e661bc4dd1b421eaab9` |
 
 ## What This Product Does
 
@@ -115,6 +120,10 @@ For an in-depth, step-by-step walkthrough covering wallet setup, property explor
 
 ## Product X Profile
 
-```text
-[PRODUCT X PROFILE — TO BE ADDED]
-```
+**PrivEstate** — Private ownership. Verifiable real estate.
+
+- **GitHub**: https://github.com/parasbabar/level4
+- **Contract Address**: `2e5e3eea72733c09f794677002d0a0840163b3b3da1d6e661bc4dd1b421eaab9` (Midnight Preprod)
+- **Track**: Finance — Tokenized Real-World Assets (RWA) with Zero-Knowledge Proofs
+- **Network**: Midnight Preprod
+- **Status**: ✅ Contract Deployed · ✅ 8/8 Tests Passing · ✅ Production Build Verified
