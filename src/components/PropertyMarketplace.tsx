@@ -20,7 +20,7 @@ interface PropertyMarketplaceProps {
   properties: PropertyMetadata[];
   walletStatus: WalletConnectionStatus;
   transactionStatus: TransactionStatus;
-  transactionTxHash: string | null;
+  transactionTxId: string | null;
   transactionError: string | null;
   onSelectPropertyForProof: (property: PropertyMetadata, type: 'ownership' | 'compliance' | 'rental') => void;
   onExecutePurchase: (property: PropertyMetadata, shares: bigint, capitalUsd: bigint) => Promise<{ txId: string | null; holding: InvestorPrivateHolding }>;
@@ -33,7 +33,7 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
   properties,
   walletStatus,
   transactionStatus,
-  transactionTxHash,
+  transactionTxId,
   transactionError,
   onSelectPropertyForProof,
   onExecutePurchase,
@@ -247,10 +247,10 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                     <span>Deployed Capital:</span>
                     <span className="font-semibold text-emerald-400">${Number(calculatedCapitalUsd).toLocaleString()}</span>
                   </div>
-                  {transactionTxHash && (
+                  {transactionTxId && (
                     <div className="pt-2 border-t border-slate-800">
-                      <span className="text-slate-400 block text-[10px] uppercase">Transaction / Signature Hash:</span>
-                      <span className="font-mono text-[11px] text-indigo-400 break-all">{transactionTxHash}</span>
+                      <span className="text-slate-400 block text-[10px] uppercase">Midnight Preprod Network Transaction ID (txId):</span>
+                      <span className="font-mono text-[11px] text-indigo-400 break-all">{transactionTxId}</span>
                     </div>
                   )}
                 </div>

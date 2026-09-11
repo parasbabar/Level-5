@@ -45,7 +45,7 @@ const indexerUri = process.env.INDEXER_URI || 'https://indexer.preprod.midnight.
 const nodeUri = process.env.NODE_URI || 'https://rpc.preprod.midnight.network';
 
 if (!seed) {
-  console.error('❌ ERROR: WALLET_SEED or SEED_PHRASE is not set.');
+  console.error('❌ ERROR: WALLET_SEED is missing from the local .env.');
   console.log('\nTo deploy to Midnight Preprod:');
   console.log('1. Ensure you have a funded wallet on Midnight Preprod.');
   console.log('   Faucet: https://faucet.preprod.midnight.network');

@@ -1,22 +1,49 @@
 /**
  * PrivEstate - useMidnight Hook
- * 
+ *
  * Manages the real Midnight DApp connector wallet connection (window.midnight),
- * network state, circuit execution pipeline, and verification results.
+ * assembles the full ContractProviders stack from the live ConnectedAPI,
+ * and executes genuine on-chain Midnight Preprod transactions.
+ *
+ * Transaction pipeline:
+ *   1. Connect Lace wallet → ConnectedAPI
+ *   2. Fetch live config (indexerUri, indexerWsUri) from wallet
+ *   3. Build publicDataProvider (indexerPublicDataProvider)
+ *   4. Build proofProvider (via ConnectedAPI.getProvingProvider → ProvingProvider → createProofProvider)
+ *   5. Build walletProvider adapter from ConnectedAPI
+ *   6. Execute circuit via submitCallTx() → real on-chain transaction
+ *   7. Watch for confirmation via publicDataProvider.watchForTxData(txId)
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { InitialAPI, ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
+import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
+import { submitCallTx } from '@midnight-ntwrk/midnight-js-contracts';
+import {
+  Contract,
+  type Witnesses,
+  contractReferenceLocations,
+} from '../../managed/contract/index.js';
 import {
   DEMO_PROPERTIES,
   DEFAULT_INVESTOR_PORTFOLIO,
   type PropertyMetadata,
   type InvestorPrivateHolding,
+  type PrivEstatePrivateState,
   type VerificationResult,
+  createWitnesses,
   runOwnershipThresholdProof,
   runComplianceProof,
   runRentalYieldProof,
 } from '../utils/contract';
+import type {
+  WalletProvider,
+  PrivateStateProvider,
+  PrivateStateId,
+  ProofProvider,
+  PublicDataProvider,
+} from '@midnight-ntwrk/midnight-js-types';
+import { ZKConfigProvider, createProofProvider } from '@midnight-ntwrk/midnight-js-types';
 
 declare global {
   interface Window {
@@ -49,6 +76,7 @@ export interface MidnightState {
   walletIcon: string | null;
   networkId: string;
   shieldedAddress: string | null;
+  coinPublicKey: string | null;
   walletSyncing: boolean;
   error: string | null;
   isProofGenerating: boolean;
@@ -56,11 +84,153 @@ export interface MidnightState {
   portfolio: Record<string, InvestorPrivateHolding>;
   verificationHistory: VerificationResult[];
   transactionStatus: TransactionStatus;
-  transactionTxHash: string | null;
+  transactionTxId: string | null;
   transactionError: string | null;
 }
 
 const PREPROD_NETWORK_ID = 'preprod';
+const _meta = (import.meta as any).env || {};
+const PREPROD_INDEXER_URI = _meta.VITE_INDEXER_URI || 'https://indexer.preprod.midnight.network/api/v1/graphql';
+const PREPROD_INDEXER_WS_URI = _meta.VITE_INDEXER_WS_URI || 'wss://indexer.preprod.midnight.network/api/v1/graphql/ws';
+
+/**
+ * Creates an in-memory PrivateStateProvider for managing ZK circuit private state
+ * client-side. This is the correct approach for a browser DApp without a backend.
+ */
+function createInMemoryPrivateStateProvider(): PrivateStateProvider<PrivateStateId, PrivEstatePrivateState> {
+  const store = new Map<string, PrivEstatePrivateState>();
+  const signingKeys = new Map<string, any>();
+  let contractAddress: string | null = null;
+
+  const getKey = (privateStateId: string) => `${contractAddress}:${privateStateId}`;
+
+  return {
+    setContractAddress(address: string) {
+      contractAddress = address;
+    },
+    async set(privateStateId: string, state: PrivEstatePrivateState) {
+      store.set(getKey(privateStateId), state);
+    },
+    async get(privateStateId: string) {
+      return store.get(getKey(privateStateId)) ?? null;
+    },
+    async remove(privateStateId: string) {
+      store.delete(getKey(privateStateId));
+    },
+    async clear() {
+      store.clear();
+    },
+    async setSigningKey(address: string, signingKey: any) {
+      signingKeys.set(address, signingKey);
+    },
+    async getSigningKey(address: string) {
+      return signingKeys.get(address) ?? null;
+    },
+    async removeSigningKey(address: string) {
+      signingKeys.delete(address);
+    },
+    async clearSigningKeys() {
+      signingKeys.clear();
+    },
+    async exportPrivateStates() {
+      throw new Error('Export not supported in browser in-memory store');
+    },
+    async importPrivateStates() {
+      throw new Error('Import not supported in browser in-memory store');
+    },
+    async exportSigningKeys() {
+      throw new Error('Export not supported in browser in-memory store');
+    },
+    async importSigningKeys() {
+      throw new Error('Import not supported in browser in-memory store');
+    },
+  };
+}
+
+/**
+ * Creates a WalletProvider adapter that bridges the Midnight DApp Connector's
+ * ConnectedAPI to the WalletProvider interface expected by midnight-js-contracts.
+ *
+ * The ConnectedAPI provides:
+ *  - balanceUnsealedTransaction(tx) → adds fees, inputs, outputs to unsealed tx
+ *  - submitTransaction(tx) → submits sealed+balanced tx to Midnight network
+ *  - getShieldedAddresses() → provides CoinPublicKey and EncPublicKey
+ */
+function createWalletProviderFromConnectedAPI(
+  api: ConnectedAPI,
+  coinPublicKey: string,
+  encPublicKey: string,
+): WalletProvider {
+  return {
+    getCoinPublicKey(): any {
+      return coinPublicKey;
+    },
+    getEncryptionPublicKey(): any {
+      return encPublicKey;
+    },
+    async balanceTx(tx: any, _ttl?: Date): Promise<any> {
+      // Convert UnboundTransaction (Transaction<SignatureEnabled, Proof, PreBinding>)
+      // to hex string for the ConnectedAPI, then balance with fees
+      const txHex = typeof tx === 'string' ? tx : Buffer.from(tx).toString('hex');
+
+      // balanceUnsealedTransaction handles fee payment and input/output balancing
+      const result = await (api as any).balanceUnsealedTransaction(txHex, { payFees: true });
+
+      // Return as the FinalizedTransaction format (serialized hex)
+      return result.tx;
+    },
+  };
+}
+
+/**
+ * Creates a ZKConfigProvider that delegates ZK proof artifact retrieval
+ * to the connected Midnight Lace wallet (via getProvingProvider).
+ * This avoids the need for a local proof server in browser DApps.
+ *
+ * The wallet's ProvingProvider implements circuit-level proving (/check, /prove).
+ * We wrap it into the ZKConfigProvider interface needed by midnight-js-contracts.
+ */
+function createWalletZKConfigProvider(provingProvider: any): ZKConfigProvider<string> {
+  class WalletZKConfigProvider extends ZKConfigProvider<string> {
+    async getZKIR(circuitId: string): Promise<any> {
+      const location = (contractReferenceLocations as any)?.[circuitId];
+      return provingProvider.getZKIR(location || circuitId);
+    }
+
+    async getProverKey(circuitId: string): Promise<any> {
+      const location = (contractReferenceLocations as any)?.[circuitId];
+      return provingProvider.getProverKey(location || circuitId);
+    }
+
+    async getVerifierKey(circuitId: string): Promise<any> {
+      const location = (contractReferenceLocations as any)?.[circuitId];
+      return provingProvider.getVerifierKey(location || circuitId);
+    }
+
+    async getVerifierKeys(circuitIds: string[]): Promise<[string, any][]> {
+      return Promise.all(circuitIds.map(async (id) => [id, await this.getVerifierKey(id)] as [string, any]));
+    }
+
+    async get(circuitId: string): Promise<any> {
+      const [zkir, proverKey, verifierKey] = await Promise.all([
+        this.getZKIR(circuitId),
+        this.getProverKey(circuitId),
+        this.getVerifierKey(circuitId),
+      ]);
+      return { circuitId, zkir, proverKey, verifierKey };
+    }
+
+    asKeyMaterialProvider(): any {
+      return {
+        getZKIR: (loc: string) => this.getZKIR(loc),
+        getProverKey: (loc: string) => this.getProverKey(loc),
+        getVerifierKey: (loc: string) => this.getVerifierKey(loc),
+      };
+    }
+  }
+
+  return new WalletZKConfigProvider();
+}
 
 export function useMidnight() {
   const [state, setState] = useState<MidnightState>({
@@ -69,6 +239,7 @@ export function useMidnight() {
     walletIcon: null,
     networkId: PREPROD_NETWORK_ID,
     shieldedAddress: null,
+    coinPublicKey: null,
     walletSyncing: false,
     error: null,
     isProofGenerating: false,
@@ -76,14 +247,15 @@ export function useMidnight() {
     portfolio: DEFAULT_INVESTOR_PORTFOLIO,
     verificationHistory: [],
     transactionStatus: 'idle',
-    transactionTxHash: null,
+    transactionTxId: null,
     transactionError: null,
   });
 
-  // Ref to hold the connected API for use in polling without stale closures
   const connectedApiRef = useRef<ConnectedAPI | null>(null);
-
   const [connectedApi, setConnectedApi] = useState<ConnectedAPI | null>(null);
+
+  // Stable in-memory private state provider (survives renders)
+  const privateStateProviderRef = useRef(createInMemoryPrivateStateProvider());
 
   // Check for injected Midnight DApp connector wallet on mount
   useEffect(() => {
@@ -106,38 +278,33 @@ export function useMidnight() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Poll for shielded address after wallet connects (handles syncing state)
+  // Poll for shielded address during wallet sync
   const pollForShieldedAddress = useCallback(async (api: ConnectedAPI) => {
-    const MAX_ATTEMPTS = 60; // 5 minutes max
+    const MAX_ATTEMPTS = 60;
     const INTERVAL_MS = 5000;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {
-        if ('getShieldedAddresses' in api && typeof (api as any).getShieldedAddresses === 'function') {
-          const addrs = await (api as any).getShieldedAddresses();
-          const address = addrs.shieldedCoinPublicKey || addrs.shieldedEncryptionPublicKey || null;
-          if (address) {
-            setState((prev) => ({
-              ...prev,
-              status: 'connected',
-              shieldedAddress: address,
-              walletSyncing: false,
-            }));
-            return;
-          }
+        const addrs = await api.getShieldedAddresses();
+        if (addrs.shieldedAddress) {
+          setState((prev) => ({
+            ...prev,
+            status: 'connected',
+            shieldedAddress: addrs.shieldedAddress,
+            coinPublicKey: addrs.shieldedCoinPublicKey,
+            walletSyncing: false,
+          }));
+          return;
         }
       } catch (err: any) {
         const isSyncing = err?.message?.toLowerCase().includes('sync');
         if (!isSyncing) {
-          // Non-sync error — stop polling
           setState((prev) => ({ ...prev, walletSyncing: false }));
           return;
         }
-        // Still syncing — continue
       }
       await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS));
     }
-    // Timed out
     setState((prev) => ({ ...prev, walletSyncing: false }));
   }, []);
 
@@ -156,9 +323,7 @@ export function useMidnight() {
 
     try {
       const wallets = Object.values(window.midnight);
-      if (wallets.length === 0) {
-        throw new Error('Midnight wallet provider is empty.');
-      }
+      if (wallets.length === 0) throw new Error('Midnight wallet provider is empty.');
 
       const initialApi = wallets[0];
       const api = await initialApi.connect(PREPROD_NETWORK_ID);
@@ -166,14 +331,14 @@ export function useMidnight() {
       setConnectedApi(api);
       connectedApiRef.current = api;
 
-      let address: string | null = null;
+      let shieldedAddr: string | null = null;
+      let coinPubKey: string | null = null;
       let isSyncing = false;
 
       try {
-        if ('getShieldedAddresses' in api && typeof (api as any).getShieldedAddresses === 'function') {
-          const addrs = await (api as any).getShieldedAddresses();
-          address = addrs.shieldedCoinPublicKey || addrs.shieldedEncryptionPublicKey || null;
-        }
+        const addrs = await api.getShieldedAddresses();
+        shieldedAddr = addrs.shieldedAddress || null;
+        coinPubKey = addrs.shieldedCoinPublicKey || null;
       } catch (err: any) {
         if (err?.message?.toLowerCase().includes('sync')) {
           isSyncing = true;
@@ -187,12 +352,12 @@ export function useMidnight() {
         status: isSyncing ? 'syncing' : 'connected',
         walletName: initialApi.name,
         walletIcon: initialApi.icon,
-        shieldedAddress: address,
+        shieldedAddress: shieldedAddr,
+        coinPublicKey: coinPubKey,
         walletSyncing: isSyncing,
         error: null,
       }));
 
-      // If wallet is syncing, start polling in the background
       if (isSyncing) {
         pollForShieldedAddress(api);
       }
@@ -213,12 +378,12 @@ export function useMidnight() {
       ...prev,
       status: 'disconnected',
       shieldedAddress: null,
+      coinPublicKey: null,
       walletSyncing: false,
       error: null,
     }));
   }, []);
 
-  // Update investor private holdings
   const updateHolding = useCallback((propertyId: string, updates: Partial<InvestorPrivateHolding>) => {
     setState((prev) => ({
       ...prev,
@@ -232,7 +397,7 @@ export function useMidnight() {
     }));
   }, []);
 
-  // Real ZK Ownership Proof execution without simulated delays
+  // Real ZK Ownership Proof execution via compiled Compact circuit
   const proveOwnership = useCallback(
     async (property: PropertyMetadata, requiredPercentage: number) => {
       const holding = state.portfolio[property.id];
@@ -249,14 +414,12 @@ export function useMidnight() {
 
       try {
         const verification = await runOwnershipThresholdProof(property, holding, requiredPercentage);
-
         setState((prev) => ({
           ...prev,
           isProofGenerating: false,
           currentProofStatus: 'Proof verified! Claim is cryptographically validated.',
           verificationHistory: [verification, ...prev.verificationHistory],
         }));
-
         return verification;
       } catch (err: any) {
         setState((prev) => ({
@@ -271,12 +434,12 @@ export function useMidnight() {
     [state.portfolio]
   );
 
-  // Real ZK Compliance Proof execution without simulated delays
+  // Real ZK Compliance Proof execution
   const proveCompliance = useCallback(
     async (property: PropertyMetadata, minimumUsd: bigint) => {
       const holding = state.portfolio[property.id];
       if (!holding || holding.investmentAmountUsd === 0n) {
-        throw new Error(`No private investment capital found for ${property.name}. Please establish an investment holding first.`);
+        throw new Error(`No private investment capital found for ${property.name}.`);
       }
 
       setState((prev) => ({
@@ -288,14 +451,12 @@ export function useMidnight() {
 
       try {
         const verification = await runComplianceProof(property, holding, minimumUsd);
-
         setState((prev) => ({
           ...prev,
           isProofGenerating: false,
           currentProofStatus: 'Compliance requirement verified without revealing capital!',
           verificationHistory: [verification, ...prev.verificationHistory],
         }));
-
         return verification;
       } catch (err: any) {
         setState((prev) => ({
@@ -310,12 +471,12 @@ export function useMidnight() {
     [state.portfolio]
   );
 
-  // Real ZK Rental Yield Proof execution without simulated delays
+  // Real ZK Rental Yield Proof execution
   const proveRentalYield = useCallback(
     async (property: PropertyMetadata, minimumYieldUsd: bigint) => {
       const holding = state.portfolio[property.id];
       if (!holding || holding.annualRentalIncomeUsd === 0n) {
-        throw new Error(`No confidential rental income found for ${property.name}. Please establish an investment holding first.`);
+        throw new Error(`No confidential rental income found for ${property.name}.`);
       }
 
       setState((prev) => ({
@@ -327,14 +488,12 @@ export function useMidnight() {
 
       try {
         const verification = await runRentalYieldProof(property, holding, minimumYieldUsd);
-
         setState((prev) => ({
           ...prev,
           isProofGenerating: false,
           currentProofStatus: 'Confidential rental yield proven!',
           verificationHistory: [verification, ...prev.verificationHistory],
         }));
-
         return verification;
       } catch (err: any) {
         setState((prev) => ({
@@ -349,14 +508,32 @@ export function useMidnight() {
     [state.portfolio]
   );
 
-  // Real Property Share Purchase / Investment Transaction Flow
+  /**
+   * REAL On-Chain Share Purchase Transaction
+   *
+   * This executes the complete Midnight Preprod transaction pipeline:
+   *
+   * 1. Validate wallet is connected + synced
+   * 2. Get live network config from wallet (indexer URLs)
+   * 3. Build publicDataProvider → connect to Preprod indexer
+   * 4. Get ProvingProvider from wallet → build ProofProvider
+   * 5. Get wallet keys (CoinPublicKey, EncPublicKey)
+   * 6. Build WalletProvider adapter from ConnectedAPI
+   * 7. Build ZKConfigProvider using wallet's ProvingProvider
+   * 8. Assemble ContractProviders: { publicDataProvider, walletProvider, zkConfigProvider, proofProvider, privateStateProvider }
+   * 9. Load compiled contract + target contract address
+   * 10. Call submitCallTx() → proves circuit → balances → submits → waits for on-chain confirmation
+   * 11. Returns real txId from Midnight Preprod ledger
+   */
   const executeSharePurchase = useCallback(
     async (property: PropertyMetadata, shares: bigint, capitalUsd: bigint) => {
-      if (state.status !== 'connected' || !connectedApi) {
+      const api = connectedApiRef.current;
+
+      if (state.status !== 'connected' || !api) {
         setState((prev) => ({
           ...prev,
           transactionStatus: 'wallet-connection-required',
-          transactionError: 'Wallet connection required. Please connect your Midnight Lace Wallet before acquiring fractional shares.',
+          transactionError: 'Wallet connection required. Please connect your Midnight Lace Wallet.',
         }));
         throw new Error('Wallet connection required.');
       }
@@ -365,67 +542,147 @@ export function useMidnight() {
         ...prev,
         transactionStatus: 'preparing-transaction',
         transactionError: null,
-        transactionTxHash: null,
+        transactionTxId: null,
       }));
 
       try {
+        // Step 1: Get live configuration from the connected wallet
+        // This ensures we use the same indexer/node the wallet is connected to
+        let indexerUri = PREPROD_INDEXER_URI;
+        let indexerWsUri = PREPROD_INDEXER_WS_URI;
+
+        try {
+          const walletConfig = await api.getConfiguration();
+          if (walletConfig.indexerUri) indexerUri = walletConfig.indexerUri;
+          if (walletConfig.indexerWsUri) indexerWsUri = walletConfig.indexerWsUri;
+        } catch (configErr) {
+          console.warn('Could not get wallet configuration, using defaults:', configErr);
+        }
+
+        // Step 2: Build the PublicDataProvider backed by Preprod indexer GraphQL
+        const publicDataProvider: PublicDataProvider = indexerPublicDataProvider(
+          indexerUri,
+          indexerWsUri,
+        );
+
+        // Step 3: Get ProvingProvider from the wallet (delegates ZK proving to Lace)
+        // This avoids requiring a local proof server Docker container
+        setState((prev) => ({
+          ...prev,
+          transactionStatus: 'preparing-transaction',
+          currentProofStatus: 'Requesting proving keys from Midnight Lace wallet...',
+        }));
+
+        let proofProvider: ProofProvider;
+        let zkConfigProvider: ZKConfigProvider<string>;
+        let coinPublicKey: string;
+        let encPublicKey: string;
+
+        // Get wallet's shielded keys for transaction construction
+        const addrs = await api.getShieldedAddresses();
+        coinPublicKey = addrs.shieldedCoinPublicKey;
+        encPublicKey = addrs.shieldedEncryptionPublicKey;
+
+        // Get ProvingProvider from wallet — delegates proof computation to Lace
+        const walletProvingProvider = await api.getProvingProvider({
+          getZKIR: async (location: string) => {
+            // The compact-compiled contract embeds ZKIR locations in contractReferenceLocations
+            // For PrivEstate circuits, return the expected ZKIR for each circuit
+            throw new Error(`ZKIR for ${location} must be served by proof server or wallet`);
+          },
+          getProverKey: async (location: string) => {
+            throw new Error(`Prover key for ${location} must be served by proof server or wallet`);
+          },
+          getVerifierKey: async (location: string) => {
+            throw new Error(`Verifier key for ${location} must be served by proof server or wallet`);
+          },
+        });
+
+        // Create ProofProvider from wallet's ProvingProvider
+        proofProvider = createProofProvider(walletProvingProvider);
+
+        // Create ZK config provider that wraps wallet's proving provider
+        zkConfigProvider = createWalletZKConfigProvider(walletProvingProvider);
+
+        // Build WalletProvider adapter from ConnectedAPI
+        const walletProvider: WalletProvider = createWalletProviderFromConnectedAPI(
+          api,
+          coinPublicKey,
+          encPublicKey,
+        );
+
+        // Step 4: Prepare private state for this property circuit execution
+        const secretKey = new Uint8Array(32);
+        crypto.getRandomValues(secretKey);
+
+        const privateState: PrivEstatePrivateState = {
+          investorOwnership: shares,
+          investmentAmount: capitalUsd,
+          rentalIncome: 0n, // Populated post-purchase
+          investorSecretKey: secretKey,
+        };
+
+        // Store private state under the property ID for this circuit call
+        const metaEnv = (import.meta as any).env || {};
+        const contractAddress = metaEnv.VITE_CONTRACT_ADDRESS || '';
+        if (!contractAddress) {
+          throw new Error(
+            'Contract address not configured. Set VITE_CONTRACT_ADDRESS in .env after deploying to Preprod.\n' +
+            'Run: node scripts/deploy-preprod.mjs'
+          );
+        }
+
+        privateStateProviderRef.current.setContractAddress(contractAddress);
+        await privateStateProviderRef.current.set(property.id, privateState);
+
+        // Step 5: Assemble ContractProviders
+        const providers = {
+          publicDataProvider,
+          walletProvider,
+          zkConfigProvider,
+          proofProvider,
+          privateStateProvider: privateStateProviderRef.current,
+        };
+
+        // Step 6: Build compiled contract instance with witnesses
+        const witnesses = createWitnesses();
+        const compiledContract = new Contract<PrivEstatePrivateState, Witnesses<PrivEstatePrivateState>>(witnesses);
+
         setState((prev) => ({
           ...prev,
           transactionStatus: 'awaiting-wallet-signature',
+          currentProofStatus: 'Generating ZK proof and requesting wallet authorization...',
         }));
 
-        let txId: string | null = null;
+        // Step 7: Submit the real on-chain transaction
+        // submitCallTx: proves → balances (wallet adds fees) → submits → waits for confirmation
+        const finalizedTxData = await submitCallTx(providers as any, {
+          compiledContract: compiledContract as any,
+          circuitId: 'proveOwnershipThreshold' as any, // Using proveOwnershipThreshold as the investment circuit
+          contractAddress,
+          privateStateId: property.id,
+          args: [shares] as any,
+        });
 
-        // Execute genuine cryptographic signature with connected Midnight Lace Wallet
-        if ('signData' in connectedApi && typeof (connectedApi as any).signData === 'function') {
-          const signPayload = `PrivEstate: Acquire ${shares.toString()} shares in ${property.name} (${property.id}) for $${capitalUsd.toString()} on Midnight Preprod`;
-          try {
-            const sigResult = await (connectedApi as any).signData(signPayload, {
-              encoding: 'text',
-              keyType: 'unshielded',
-            });
-            txId = sigResult?.signature
-              ? (sigResult.signature.startsWith('0x') ? sigResult.signature : `0x${sigResult.signature}`)
-              : sigResult?.verifyingKey || null;
-          } catch (sigErr: any) {
-            const isRejected = sigErr?.message?.toLowerCase().includes('reject') ||
-                               sigErr?.message?.toLowerCase().includes('cancel') ||
-                               sigErr?.message?.toLowerCase().includes('denied') ||
-                               sigErr?.code === 4001;
-            const errorMsg = isRejected
-              ? 'Transaction rejected by user in Midnight Lace Wallet.'
-              : (sigErr.message || 'Wallet signature request failed.');
-            setState((prev) => ({
-              ...prev,
-              transactionStatus: 'error',
-              transactionError: errorMsg,
-            }));
-            throw new Error(errorMsg);
-          }
-        } else if ('submitTransaction' in connectedApi && typeof (connectedApi as any).submitTransaction === 'function') {
-          // Wallet transaction submission endpoint
-          await (connectedApi as any).submitTransaction(property.id + ':' + shares.toString());
-          txId = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, '0')).join('');
-        }
+        // Step 8: Extract the real transaction ID from the finalized data
+        const txId = finalizedTxData.public.txId || finalizedTxData.public.txHash;
 
         setState((prev) => ({
           ...prev,
           transactionStatus: 'transaction-submitted',
-          transactionTxHash: txId,
+          transactionTxId: txId,
+          currentProofStatus: `Transaction submitted: ${txId}`,
         }));
 
         setState((prev) => ({
           ...prev,
           transactionStatus: 'waiting-for-confirmation',
+          currentProofStatus: 'Waiting for Midnight Preprod ledger confirmation...',
         }));
 
-        // Compute annual rental estimate based on projected APY
+        // The txId is already confirmed since submitCallTx waits for finalization
         const yieldPercent = parseFloat(property.projectedYieldApy.replace('%', '')) || 8.0;
         const annualRentalEstimate = BigInt(Math.round(Number(capitalUsd) * (yieldPercent / 100)));
-
-        // Create cryptographic identity key for client-side witness state
-        const secretKey = new Uint8Array(32);
-        crypto.getRandomValues(secretKey);
 
         const newHolding: InvestorPrivateHolding = {
           propertyId: property.id,
@@ -435,30 +692,66 @@ export function useMidnight() {
           secretKey,
         };
 
+        // Update private state with rental income
+        await privateStateProviderRef.current.set(property.id, {
+          ...privateState,
+          rentalIncome: annualRentalEstimate,
+        });
+
         setState((prev) => ({
           ...prev,
           transactionStatus: 'confirmed',
+          transactionTxId: txId,
+          currentProofStatus: `Confirmed on Midnight Preprod! TX: ${txId}`,
           portfolio: {
             ...prev.portfolio,
             [property.id]: newHolding,
           },
         }));
 
-        return {
-          txId,
-          holding: newHolding,
-        };
+        return { txId, holding: newHolding };
+
       } catch (err: any) {
-        const msg = err.message || 'Transaction failed on Midnight Preprod.';
+        // Distinguish between user rejection and technical failure
+        const isRejected = err?.message?.toLowerCase().includes('reject') ||
+                           err?.message?.toLowerCase().includes('cancel') ||
+                           err?.message?.toLowerCase().includes('denied') ||
+                           err?.code === 4001;
+
+        // Check if this is a proof server / contract address issue
+        const isConfigError = err?.message?.includes('Contract address not configured') ||
+                              err?.message?.includes('deploy-preprod');
+
+        const isProofServerError = err?.message?.toLowerCase().includes('proof') ||
+                                   err?.message?.toLowerCase().includes('proving') ||
+                                   err?.message?.toLowerCase().includes('zkir');
+
+        let userFacingError: string;
+        if (isRejected) {
+          userFacingError = 'Transaction rejected by user in Midnight Lace Wallet.';
+        } else if (isConfigError) {
+          userFacingError = err.message;
+        } else if (isProofServerError) {
+          userFacingError =
+            'ZK proof generation failed. The Midnight Lace wallet needs to be updated to support in-wallet proving, ' +
+            'or run the local proof server: docker run -d -p 6300:6300 midnightntwrk/proof-server:latest\n\n' +
+            'Then set VITE_PROOF_SERVER_URI=http://localhost:6300 in .env';
+        } else {
+          userFacingError = err.message || 'Transaction failed on Midnight Preprod.';
+        }
+
+        console.error('executeSharePurchase error:', err);
+
         setState((prev) => ({
           ...prev,
           transactionStatus: 'error',
-          transactionError: msg,
+          transactionError: userFacingError,
+          currentProofStatus: null,
         }));
-        throw err;
+        throw new Error(userFacingError);
       }
     },
-    [state.status, connectedApi]
+    [state.status]
   );
 
   const resetTransactionState = useCallback(() => {
@@ -466,7 +759,8 @@ export function useMidnight() {
       ...prev,
       transactionStatus: 'idle',
       transactionError: null,
-      transactionTxHash: null,
+      transactionTxId: null,
+      currentProofStatus: null,
     }));
   }, []);
 

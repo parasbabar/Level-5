@@ -59,7 +59,7 @@ export function App() {
             properties={midnight.properties}
             walletStatus={midnight.status}
             transactionStatus={midnight.transactionStatus}
-            transactionTxHash={midnight.transactionTxHash}
+            transactionTxId={midnight.transactionTxId}
             transactionError={midnight.transactionError}
             onSelectPropertyForProof={handleSelectPropertyForProof}
             onExecutePurchase={midnight.executeSharePurchase}
