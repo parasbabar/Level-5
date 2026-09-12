@@ -1,68 +1,289 @@
-# PrivEstate
+# 🏠 PrivEstate
+
+Privacy-Preserving Fractional Real Estate on Midnight
+
+*"This project is built on the Midnight Network."*
 
 [![CI](https://github.com/parasbabar/level4/actions/workflows/ci.yml/badge.svg)](https://github.com/parasbabar/level4/actions/workflows/ci.yml)
 
-> Private ownership. Verifiable real estate.
+---
 
-## Live Demo
+## 🔗 Level 4 Submission Links
 
-Run locally against Midnight Preprod in under 60 seconds:
-```bash
-git clone https://github.com/parasbabar/level4.git
-cd level4
-npm install
-npm run dev
-# Open http://localhost:5173 and connect your Midnight Lace Wallet (set to Preprod)
+| Resource | Link / Identifier | Notes |
+| :--- | :--- | :--- |
+| 🚀 **Live MVP** | [https://level4-nu.vercel.app](https://level4-nu.vercel.app) | Deployed on Vercel, live on Midnight Preprod |
+| 📦 **GitHub Repository** | [https://github.com/parasbabar/level4](https://github.com/parasbabar/level4) | Public repository (38+ commits) |
+| ⛓️ **Midnight Preprod Contract** | `2e5e3eea72733c09f794677002d0a0840163b3b3da1d6e661bc4dd1b421eaab9` | Deployed Compact smart contract |
+| 🌐 **Midnight Preprod Explorer** | [https://explorer.preprod.midnight.network/](https://explorer.preprod.midnight.network/) | Official Midnight Preprod Block Explorer |
+| 🐦 **PrivEstate X Profile** | *TODO: Add PrivEstate X profile URL* | Product building in public profile |
+| 🎥 **MVP Demo Video** | *TODO: Add PrivEstate demo video URL* | Walkthrough recording of live MVP flow |
+| ⚙️ **CI/CD Pipeline** | [.github/workflows/ci.yml](.github/workflows/ci.yml) | Automated test, Compact compile, and build |
+| 📖 **Usage Guide** | [docs/USAGE.md](docs/USAGE.md) | Step-by-step investor & auditor walkthrough |
+| 📋 **Project Proposal** | [PROPOSAL.md](PROPOSAL.md) | Product specification and architecture |
+
+---
+
+## ✨ What is PrivEstate?
+
+**PrivEstate** is a privacy-preserving fractional real estate investment MVP built on the **Midnight Network**.
+
+Real-world asset (RWA) tokenization allows multi-million dollar properties to be divided into liquid, accessible fractional shares. However, traditional public blockchains force all wallet balances, cap tables, investment figures, and rental payouts into the clear for any observer to inspect.
+
+PrivEstate resolves this dilemma using Midnight's **Compact** smart contract language and **Zero-Knowledge (ZK) Proofs**:
+
+* **Fractional Property Ownership**: High-value properties are divided into tokenized fractional shares (e.g., 100,000 shares).
+* **Private Investor Holdings**: Share allocations and capital balances are stored off-chain in client-shielded witness state.
+* **Confidential Investment Amounts**: The exact dollar amount deployed by an investor is never recorded on the public ledger.
+* **Zero-Knowledge Ownership Threshold Proofs**: Investors mathematically prove they satisfy an ownership requirement without disclosing their exact holdings.
+* **Compliance & Accreditation Verification**: Investors prove their capital meets statutory accreditation standards (e.g., $\ge \$250,000$) without disclosing total net worth or bank statements.
+* **Confidential Rental-Yield Verification**: Investors verify rental distributions meet target benchmarks without revealing private payout figures.
+* **Auditor & Regulator Verification**: Third parties verify mathematical validity on-chain through public verification audit counters without exposing confidential investor data.
+
+> **Example**: An investor privately holds **17.43%** (17,430 shares) of a property. When joining a syndicate requiring a 10% minimum, the investor generates a ZK proof asserting:  
+> **"I own at least 10% of this property."**  
+> The verifier confirms the threshold claim with mathematical certainty, while the investor's exact 17.43% holding remains completely secret.
+
+---
+
+## 🎯 Problem
+
+Public blockchains introduce a fundamental **transparency-vs-privacy conflict** for financial and real estate applications:
+
+1. **Exposure of Sensitive Ownership**: On public ledgers, every token balance is visible. Competitors, tenants, and adversaries can inspect an investor's exact holdings, asset accumulation strategy, and property stake.
+2. **Confidential Capital at Risk**: High-net-worth individuals and corporate syndicates cannot accept having total deployed capital and liquidity publicly searchable.
+3. **Rental Income & Distribution Privacy**: Exposing ongoing rental income payouts leaks personal cash flow and financial profiles.
+4. **Intrusive All-or-Nothing Compliance**: Traditional off-chain syndicates force investors to hand over full tax filings, bank statements, and identification to prove eligibility, creating centralized data honeypots prone to breaches.
+
+---
+
+## 💡 Solution
+
+PrivEstate applies Midnight's **selective-disclosure model** to real-world asset investing:
+
+> *"Reveal the result that needs to be verified, not the private data used to produce it."*
+
+* **Decoupled Verification**: The application verifies predicates over private data inside local zero-knowledge circuits.
+* **Succinct Ledger State**: The public ledger records property parameters and increments public verification counters (`verifiedOwnershipCount`, `verifiedComplianceCount`, `verifiedRentalYieldCount`).
+* **Zero Data Honeypots**: Auditors, syndicate managers, and regulators receive cryptographic guarantees without storing or inspecting raw investor financial records.
+
+---
+
+## 🏗️ Architecture
+
+```text
++-----------------------------------------------------------------------+
+|                       INVESTOR CLIENT BROWSER                         |
+|                                                                       |
+|  [ React / Vite Frontend ] <-------------------> [ Private Witness ]  |
+|  - Property Marketplace                           - investorOwnership  |
+|  - Shielded Portfolio                             - investmentAmount   |
+|  - ZK Proof Generation UI                         - rentalIncome       |
+|  - Auditor Verifier Portal                        - secretKey          |
++-----------------------------------------------------------------------+
+                                   |
+                                   | (Midnight DApp Connector API)
+                                   v
++-----------------------------------------------------------------------+
+|                    MIDNIGHT LACE WALLET EXTENSION                     |
+|                                                                       |
+|  - Shielded Address & Public Key Management                           |
+|  - Transaction Signing & Proof Delegation                             |
+|  - Preprod Network Connection                                         |
++-----------------------------------------------------------------------+
+                                   |
+                                   | (Submits Proofs & State Updates)
+                                   v
++-----------------------------------------------------------------------+
+|                       MIDNIGHT PREPROD NETWORK                        |
+|                                                                       |
+|  [ Compact Smart Contract: contracts/privestate.compact ]             |
+|                                                                       |
+|  - ZK Circuits (Evaluated with private witnesses):                    |
+|    * proveOwnershipThreshold(requiredShares)                          |
+|    * proveCompliance(minimumRequired)                                 |
+|    * proveRentalClaim(minimumYield)                                   |
+|    * computeInvestorCommitment(sk, propId)                            |
+|                                                                       |
+|  - Public Ledger State (On-Chain):                                    |
+|    * propertyId: Bytes<32>                                            |
+|    * totalShares: Uint<64>                                            |
+|    * complianceMinimum: Uint<64>                                      |
+|    * verifiedOwnershipCount: Counter                                  |
+|    * verifiedComplianceCount: Counter                                 |
+|    * verifiedRentalYieldCount: Counter                                |
+|    * lastVerifiedThreshold: Uint<64>                                  |
++-----------------------------------------------------------------------+
+                                   |
+                                   | (Public Verifiable Audit Log)
+                                   v
++-----------------------------------------------------------------------+
+|                         AUDITOR / REGULATOR                           |
+|                                                                       |
+|  - Inspects on-chain public verification counters                     |
+|  - Validates cryptographic proof certificates                         |
+|  - Learns: "Claim is cryptographically VALID"                         |
+|  - Zero disclosure of underlying shares, capital, or rental payouts   |
++-----------------------------------------------------------------------+
 ```
 
-## Contract Address
+---
 
-| Network | Address |
-| ------- | ----------------------------------- |
-| Preprod | `2e5e3eea72733c09f794677002d0a0840163b3b3da1d6e661bc4dd1b421eaab9` |
+## 🔐 Privacy Model
 
-## What This Product Does
+PrivEstate strictly partitions application state between private witness data and public verifiable ledger state:
 
-Traditional real-estate investment and fractional asset tokenization suffer from an inherent privacy paradox: public ledgers record token holdings, wallet balances, and investment amounts in plain text for any observer to view. When institutional or high-net-worth investors purchase fractional shares of premium properties, their sensitive financial profiles—including their exact ownership percentages, total capital deployed, and annual rental earnings—become permanently visible. Conversely, off-chain private real estate syndicates require intrusive documentation, forcing investors to disclose complete bank statements and tax filings to every counterparty, landlord, and regulatory auditor.
+### 🔒 Strictly Private (Shielded Client-Side)
+* **Investor Ownership Shares**: Exact share count (e.g., 17,430 shares) resides strictly in client-shielded witness storage.
+* **Capital Invested**: Exact dollar amount deployed (e.g., $500,000) is shielded from external inspection.
+* **Confidential Rental Income**: Annual rental payouts, yield distributions, and bank routing details remain private.
+* **Private Identity & Secret Keys**: Cryptographic salt and private keys used to derive Zero-Knowledge commitments.
+* **Private Verification Inputs**: Raw numbers used during witness execution are never transmitted across the network.
 
-PrivEstate resolves this fundamental conflict by pairing tokenized Real-World Assets (RWA) with Midnight's privacy-first blockchain and Zero-Knowledge Proofs. By leveraging Midnight's Compact smart contract language, investors can privately hold fractional property shares in shielded state and generate succinct cryptographic proofs of their claims without revealing the underlying financial figures. For example, an investor holding 17.43% of a luxury residential building can prove to a syndicate: *"I own at least 10% of this asset"*, while the verifier learns only that the statement is mathematically valid—without ever learning whether the investor owns 10.1%, 17.43%, or 90%.
+### 🌐 Public & Verifiable (On-Chain Midnight Ledger)
+* **Contract Address**: Deployed contract identity on Midnight Preprod.
+* **Network Identifier**: Target environment (`preprod`).
+* **Property Metadata**: Public asset identifiers (`propertyId`), total authorized shares (`totalShares`), and compliance minimums (`complianceMinimum`).
+* **Verification Audit Counters**: Incremented on-chain counters recording valid proofs (`verifiedOwnershipCount`, `verifiedComplianceCount`, `verifiedRentalYieldCount`).
+* **Last Verified Threshold**: Publicly disclosed threshold benchmark from the latest successful verification.
+* **Transaction Identifiers**: Real Midnight Preprod transaction IDs confirming state changes.
 
-Furthermore, PrivEstate modernizes regulatory compliance and investor accreditation. Instead of submitting sensitive net-worth records to third-party portals, investors prove through a private witness circuit that their deployed capital satisfies the required statutory minimum (e.g., $\ge \$250,000$). Regulators and auditors can independently verify the Zero-Knowledge claim on-chain through public verification counters, guaranteeing strict compliance while preserving absolute investor confidentiality.
+*PrivEstate does not claim that every transaction detail is publicly visible; privacy is preserved by disclosing only the verified boolean outcome to the ledger.*
 
-## Privacy Model
+---
 
-### What is PUBLIC
-* **Property Identification**: Property metadata, unique identifiers (`propertyId`), and physical property disclosures.
-* **Tokenized Asset Economics**: Total fractional share supply (`totalShares`) and statutory compliance minimums (`complianceMinimum`).
-* **Verifiable Audit Log**: Aggregated cryptographic verification counters (`verifiedOwnershipCount`, `verifiedComplianceCount`, `verifiedRentalYieldCount`) and the last public threshold benchmark verified.
+## 🧠 Smart Contract
 
-### What is PRIVATE
-* **Exact Ownership Shares**: The investor's specific share allocation (e.g., 17,430 shares) remains strictly confidential in off-chain client witness storage.
-* **Capital Invested**: The exact dollar amount deployed by the investor (e.g., $500,000) is shielded from external inspection.
-* **Confidential Rental Income**: Annual rental payouts, yield distributions, and bank routing details are kept strictly private.
-* **Investor Identity & Keys**: Private identity salts and cryptographic secret keys used to derive Zero-Knowledge commitments.
+The core contract is implemented in Midnight's **Compact** language:
+📄 [contracts/privestate.compact](contracts/privestate.compact)
 
-### What the user PROVES without revealing
-* **Ownership Threshold Claim**: Proves $investorOwnership \ge requiredThreshold$ (e.g., *"I own at least 10%"*) without revealing the exact percentage ($17.43\%$).
-* **Regulatory Compliance**: Proves $investmentAmount \ge minimumRequired$ (e.g., satisfying the $\$250,000$ accredited investor requirement) without revealing total net worth or bank deposits.
-* **Confidential Rental Yield**: Proves that property rental distributions meet or exceed a specific yield benchmark without disclosing private payout amounts.
+### Implemented Circuits
 
-## Tech Stack
-* **Smart Contracts**: Compact Smart Contract Language (Language version $\ge 0.23$)
-* **Privacy & ZK Engine**: Midnight Network, ZK Intermediate Representation (ZKIR), Compact Runtime (`@midnight-ntwrk/compact-runtime`)
-* **Wallet Connector**: Midnight DApp Connector Standard (`@midnight-ntwrk/dapp-connector-api`) for Midnight Lace Wallet
-* **Frontend**: React 19, TypeScript, Vite, Lucide Icons, Vanilla CSS Design System
-* **Testing**: Vitest, Compact Simulator Testbed
-* **CI/CD**: GitHub Actions
+1. **`proveOwnershipThreshold(requiredShares: Uint<64>): []`**
+   - **Private Witness**: `getInvestorOwnership()`
+   - **Public Input**: `requiredShares`
+   - **ZK Constraint**: `actualOwnership >= requiredShares && actualOwnership <= totalShares`
+   - **Ledger Effect**: Increments `verifiedOwnershipCount` and records `lastVerifiedThreshold = disclose(requiredShares)`.
 
-## Prerequisites
+2. **`proveCompliance(minimumRequired: Uint<64>): []`**
+   - **Private Witness**: `getInvestmentAmount()`
+   - **Public Input**: `minimumRequired`
+   - **ZK Constraint**: `actualInvestment >= minimumRequired`
+   - **Ledger Effect**: Increments `verifiedComplianceCount`.
+
+3. **`proveRentalClaim(minimumYield: Uint<64>): []`**
+   - **Private Witness**: `getRentalIncome()`
+   - **Public Input**: `minimumYield`
+   - **ZK Constraint**: `actualRental >= minimumYield`
+   - **Ledger Effect**: Increments `verifiedRentalYieldCount`.
+
+4. **`computeInvestorCommitment(sk: Bytes<32>, propId: Bytes<32>): Bytes<32>`**
+   - **Pure Circuit**: Computes a deterministic identity hash:
+     `persistentHash([pad(32, "privestate:inv:"), propId, sk])`
+   - Allows investors to prove identity binding across transactions without disclosing their secret key.
+
+---
+
+## 🏘️ Property Marketplace
+
+The marketplace presents tokenized Real-World Assets configured for demonstration on Midnight Preprod:
+
+* **Featured Property**: *Sunrise Luxury Residences*
+* **Property ID**: `PROP-001`
+* **Total Asset Valuation**: $5,000,000 USD
+* **Fractional Share Supply**: 100,000 fractional shares ($50 / share)
+* **Projected Rental Yield**: 8.4% APY
+* **Statutory Compliance Minimum**: $250,000 USD (Accredited Tier)
+
+Users can connect a Midnight wallet, select an allocation, and acquire fractional shares via real Midnight Preprod transactions. The marketplace includes per-property state isolation and persistent holding badges to support multi-property workflows.
+
+---
+
+## 👛 Wallet Integration
+
+PrivEstate natively integrates with the **Midnight DApp Connector Standard** (`@midnight-ntwrk/dapp-connector-api`) for the **Midnight Lace Wallet**:
+
+* **Connector Detection**: Automatically detects `window.midnight.mnLace` on page load.
+* **Network Validation**: Verifies the wallet is connected to the **Midnight Preprod** network.
+* **Shielded Identity**: Safely accesses shielded addresses and coin public keys to derive deterministic, wallet-scoped client storage.
+* **Contract Interaction**: Executes contract calls with automatic proof generation.
+* **Real Preprod Transactions**: Submits scoped transactions signed by the user's wallet with confirmation tracking.
+* **Stale Lock Resilience**: Includes automatic retry handling with exponential backoff for wallet extension internal queue locks.
+
+> ⚠️ **Security Notice**: PrivEstate never requests, stores, or handles wallet seed phrases or private signing keys. All authorization occurs inside the user's Midnight Lace Wallet extension.
+
+---
+
+## 📊 Portfolio
+
+The **Shielded Portfolio** view displays the investor's confidential position:
+
+* **Private Fractional Shares**: Displayed as share quantity and calculated ownership percentage.
+* **Shielded Capital Invested**: Total fiat-equivalent capital deployed into the asset.
+* **Estimated Annual Rental Yield**: Expected annual rental disbursements based on ownership.
+* **Visual Privacy Masking**: Toggleable masking button (`Mask Private Values / Reveal Shielded Values`) allowing investors to safely navigate the interface in public settings without exposing figures.
+* **Scenario Adjustment**: Ability to adjust test holding amounts to test different verification threshold outcomes against the contract.
+
+---
+
+## 🛡️ Proof Verification
+
+PrivEstate provides an intuitive interface for generating and inspecting Zero-Knowledge proofs:
+
+1. **Ownership Threshold Verification**: Choose a property and threshold (e.g., 5%, 10%, 20%). The Compact circuit evaluates the witness locally and increments the on-chain audit counter.
+2. **Accreditation & Compliance Verification**: Select standard accreditation tiers ($100k, $250k, $500k). The circuit verifies compliance without revealing deployed capital.
+3. **Confidential Rental Yield Verification**: Prove annual earnings meet a benchmark yield without disclosing payout amounts.
+4. **Auditor & Regulator Verification Portal**: A dedicated verifier view displaying the complete on-chain audit log. Auditors verify proof status (`VALID`), circuit identifier (`proveOwnershipThreshold.zkir`), and identity commitments while confirming that underlying values remain masked (`🔒 NOT DISCLOSED`).
+
+---
+
+## 🧪 Testing
+
+PrivEstate includes an automated test suite verifying contract execution, private witness behavior, circuit constraints, and ledger assertions:
+📄 [tests/privestate.test.ts](tests/privestate.test.ts)
+
+Run the test suite:
+```bash
+npm test
+```
+
+### Verified Test Results: 8/8 Passing
+
+1. **Contract Initialization**: Verifies initial ledger parameters (`propertyId`, `totalShares`, `complianceMinimum`, counters at 0) while confirming private state is shielded off-chain.
+2. **Valid Ownership Threshold Proof (PASS)**: Confirms that an investor holding 17.43% satisfies a 10% threshold claim, incrementing the public counter without leaking the exact share count.
+3. **Invalid Ownership Threshold Proof (FAIL)**: Confirms contract assertion rejects claims when holdings (7%) fall below the requested threshold (10%).
+4. **Regulatory Accreditation Proof (PASS)**: Validates compliance proof when capital ($500,000) meets the statutory minimum ($250,000) without revealing the investment amount.
+5. **Sub-Threshold Compliance Rejection (FAIL)**: Rejects accreditation proof when capital ($150,000) is below the required threshold ($250,000).
+6. **Confidential Rental Yield Claim (PASS)**: Verifies rental yield claim ($\ge \$30,000$) against private income ($45,000$) without exposing actual earnings.
+7. **Invalid Rental Yield Rejection (FAIL)**: Confirms rejection when claimed yield ($\ge \$60,000$) exceeds actual earnings ($45,000$).
+8. **Cryptographic Identity Commitment**: Confirms deterministic investor commitment derivation over identity secret keys and property identifiers without exposing the secret.
+
+---
+
+## ⚙️ CI/CD
+
+Continuous Integration is automated via GitHub Actions:
+📄 [.github/workflows/ci.yml](.github/workflows/ci.yml)
+
+[![CI](https://github.com/parasbabar/level4/actions/workflows/ci.yml/badge.svg)](https://github.com/parasbabar/level4/actions/workflows/ci.yml)
+
+On every push and pull request to `main`, the pipeline validates:
+1. **Repository Checkout & Setup**: Node.js v22 environment configuration with npm caching.
+2. **Dependency Installation**: Clean dependency resolution with `npm ci`.
+3. **Contract & Circuit Tests**: Full execution of `npm test` (8/8 tests passing).
+4. **Frontend Production Build**: Zero-error compilation and bundling via `npm run build` (`tsc && vite build`).
+
+---
+
+## 🚀 Local Setup
+
+### Prerequisites
 * **Node.js**: v22.x or higher
 * **npm**: v10.x or higher
-* **Compact CLI Toolchain**: `compact` version `0.5.2` (Compiler version `0.34.0`, Runtime `0.19.0`)
-* **Midnight Wallet**: Midnight Lace Wallet browser extension configured for Preprod
-* **WSL2 (Windows only)** or native Linux/macOS for running the Compact compiler CLI
+* **Midnight Lace Wallet**: Browser extension configured for Midnight Preprod
+* **Compact CLI Toolchain** *(optional, for recompiling `.compact` contracts)*: `compact` v0.5.2
 
-## Setup & Run Locally
+### Step-by-Step Installation
 
 1. **Clone the repository**:
    ```bash
@@ -75,55 +296,180 @@ Furthermore, PrivEstate modernizes regulatory compliance and investor accreditat
    npm install
    ```
 
-3. **Compile the Compact smart contract**:
+3. **Configure environment variables**:
    ```bash
-   npm run compact
+   cp .env.example .env
    ```
-   *This compiles `contracts/privestate.compact` into TypeScript bindings and ZKIR circuits in `managed/`.*
+   The default `.env.example` is pre-configured for the live Midnight Preprod deployment:
+   ```env
+   VITE_MIDNIGHT_NETWORK_ID=preprod
+   VITE_INDEXER_URI=https://indexer.preprod.midnight.network/api/v4/graphql
+   VITE_INDEXER_WS_URI=wss://indexer.preprod.midnight.network/api/v4/graphql/ws
+   VITE_NODE_URI=https://rpc.preprod.midnight.network
+   VITE_PROOF_SERVER_URI=http://localhost:6300
+   VITE_CONTRACT_ADDRESS=2e5e3eea72733c09f794677002d0a0840163b3b3da1d6e661bc4dd1b421eaab9
+   ```
+
+   > 🔒 **Security Notice**: Never commit `.env`, wallet seeds, or private credentials to version control.
 
 4. **Start the local development server**:
    ```bash
    npm run dev
    ```
-   Open `http://localhost:5173` in your browser.
+   Open `http://localhost:5173` in a Chromium-based browser with the Midnight Lace Wallet extension installed.
 
-## Run Tests
+---
 
-Execute the comprehensive contract, witness, and circuit test suite:
-```bash
-npm test
+## 🛠️ Development Commands
+
+These commands correspond directly to the scripts defined in `package.json`:
+
+| Command | Action |
+| :--- | :--- |
+| `npm install` | Install all project dependencies |
+| `npm run dev` | Start local Vite development server with HMR |
+| `npm test` | Run Vitest contract and circuit test suite (8 tests) |
+| `npm run build` | Typecheck (`tsc`) and create production bundle (`vite build`) |
+| `npm run compact` | Compile Compact smart contract (`scripts/compile-compact.mjs`) |
+| `npm run preview` | Locally preview the built production distribution |
+
+---
+
+## 📁 Project Structure
+
+```text
+level4/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                # CI/CD pipeline definition
+├── contracts/
+│   └── privestate.compact        # Midnight Compact smart contract & circuits
+├── docs/
+│   └── USAGE.md                  # Comprehensive user and auditor guide
+├── managed/
+│   └── contract/                 # Compiled Compact TypeScript bindings & ZKIR
+├── public/                       # Static public assets
+├── scripts/
+│   ├── compile-compact.mjs       # Compact compilation script
+│   ├── deploy-preprod.mjs        # Midnight Preprod deployment utility
+│   └── start-dev.mjs             # Dev startup utility
+├── src/
+│   ├── components/
+│   │   ├── ComplianceProof.tsx   # Regulatory compliance proof interface
+│   │   ├── DeployContract.tsx    # In-dApp contract deployment utility
+│   │   ├── Layout.tsx            # Navigation header, network status, tabs
+│   │   ├── OwnershipProof.tsx    # Ownership threshold ZK proof interface
+│   │   ├── Portfolio.tsx         # Shielded portfolio with privacy masking
+│   │   ├── ProofVerifier.tsx     # Auditor/regulator verification portal
+│   │   ├── PropertyMarketplace.tsx # Fractional property acquisition & cards
+│   │   └── WalletConnect.tsx     # Midnight Lace Wallet connection banner
+│   ├── hooks/
+│   │   ├── useDeployContract.ts  # Contract deployment hook
+│   │   └── useMidnight.ts        # Midnight DApp Connector & circuit state hook
+│   ├── utils/
+│   │   ├── contract.ts           # Contract helpers & witness binding
+│   │   ├── zkArtifactsData.ts    # Bundled ZKIR circuit artifact definitions
+│   │   └── zkConfigProvider.ts   # ZK proof provider configuration
+│   ├── App.tsx                   # Main application entry point & routing
+│   ├── index.css                 # Custom design system & styles
+│   └── main.tsx                  # React DOM mount point
+├── tests/
+│   └── privestate.test.ts        # Compact contract, witness, & circuit tests
+├── .env.example                  # Template environment configuration
+├── index.html                    # Single-page application entry HTML
+├── package.json                  # Dependencies and build scripts
+├── PROPOSAL.md                   # Level 4 project proposal & specification
+├── README.md                     # Project overview and documentation
+├── tsconfig.json                 # TypeScript compiler configuration
+├── vite.config.ts                # Vite build configuration (WASM & polyfills)
+└── vitest.config.ts              # Vitest test runner configuration
 ```
 
-The test suite validates:
-1. Contract initialization with public ledger isolation and private state shielding.
-2. Valid ownership threshold proof assertion ($\ge 10\%$) with ledger audit increment.
-3. Rejection of invalid ownership threshold claims below the required threshold.
-4. Valid regulatory accreditation proof ($\ge \$250,000$) without capital disclosure.
-5. Rejection of sub-threshold compliance claims.
-6. Confidential rental yield claim verification.
-7. Cryptographic investor commitment derivation.
+---
 
-## CI/CD
+## 🌐 Deployment
 
-Continuous Integration is automated using GitHub Actions via `.github/workflows/ci.yml`. On every push and pull request to `main`:
-1. Checks out the repository and sets up Node.js v22.
-2. Installs dependencies using `npm ci`.
-3. Installs the official Midnight Compact compiler CLI.
-4. Executes `npm run compact` to verify contract compilation.
-5. Runs the full test suite with `npm test`.
-6. Executes `npm run build` to verify zero-error production frontend bundling.
+* **Frontend Application**: Deployed live on Vercel at [https://level4-nu.vercel.app](https://level4-nu.vercel.app)
+* **Target Blockchain Network**: Midnight Preprod (`preprod`)
+* **Deployed Contract Address**:  
+  `2e5e3eea72733c09f794677002d0a0840163b3b3da1d6e661bc4dd1b421eaab9`
+* **Block Explorer Reference**: [Midnight Preprod Explorer](https://explorer.preprod.midnight.network/)
 
-## Usage Guide
+---
 
-For an in-depth, step-by-step walkthrough covering wallet setup, property exploration, generating Zero-Knowledge proofs, and auditor verification, refer to:
-👉 [docs/USAGE.md](docs/USAGE.md)
+## 🎥 Demo
 
-## Product X Profile
+* **Demo Video Link**: *TODO: Add PrivEstate demo video URL*
 
-**PrivEstate** — Private ownership. Verifiable real estate.
+### Recommended Demo Flow
 
-- **GitHub**: https://github.com/parasbabar/level4
-- **Contract Address**: `2e5e3eea72733c09f794677002d0a0840163b3b3da1d6e661bc4dd1b421eaab9` (Midnight Preprod)
-- **Track**: Finance — Tokenized Real-World Assets (RWA) with Zero-Knowledge Proofs
-- **Network**: Midnight Preprod
-- **Status**: ✅ Contract Deployed · ✅ 8/8 Tests Passing · ✅ Production Build Verified
+1. **Connect Wallet**: Connect the Midnight Lace Wallet extension configured for Midnight Preprod.
+2. **Explore Marketplace**: View *Sunrise Luxury Residences* (Property ID: `PROP-001`) with public economic parameters.
+3. **Acquire Fractional Shares**: Select an allocation (e.g., 10%) and submit the real Midnight Preprod transaction.
+4. **Verify Transaction**: Observe the real Preprod transaction submission and confirmation.
+5. **Inspect Shielded Portfolio**: View private shares, capital deployed, and estimated rental yield; toggle privacy masking.
+6. **Generate Ownership ZK Proof**: Select an ownership threshold (e.g., $\ge 10\%$) and generate a Zero-Knowledge proof.
+7. **Verify on Ledger**: Observe the incremented public verification counter on the Midnight contract.
+8. **Test Compliance & Rental Proofs**: Generate regulatory accreditation and confidential rental yield proofs.
+9. **Auditor Portal**: Open the auditor verifier view to inspect verified proofs without exposing private investor figures.
+
+---
+
+## 🐦 Building in Public
+
+* **Product X Profile**: *TODO: Add PrivEstate X profile URL*
+
+PrivEstate updates and development milestones will be published to the official product X account as part of the Midnight Level 4 challenge.
+
+---
+
+## 🏆 Midnight Level 4 Submission Checklist
+
+- [x] **Working MVP live on Midnight Preprod**: Deployed at [https://level4-nu.vercel.app](https://level4-nu.vercel.app)
+- [x] **Verifiable contract address**: `2e5e3eea72733c09f794677002d0a0840163b3b3da1d6e661bc4dd1b421eaab9` on Midnight Preprod
+- [x] **Public GitHub repository**: [https://github.com/parasbabar/level4](https://github.com/parasbabar/level4)
+- [x] **Comprehensive README documentation**: Architecture, privacy model, circuits, local setup
+- [x] **Setup documentation**: Local installation and environment configuration
+- [x] **Usage documentation**: [docs/USAGE.md](docs/USAGE.md) covering investor & auditor workflows
+- [x] **CI/CD workflow**: [.github/workflows/ci.yml](.github/workflows/ci.yml) validating tests and builds
+- [x] **15+ meaningful commits**: 38+ verified commits in repository history
+- [ ] **Product X profile**: *TODO: Add PrivEstate X profile URL*
+- [ ] **Demo video**: *TODO: Add PrivEstate demo video URL*
+
+---
+
+## 🔒 Security & Privacy Notes
+
+* **Experimental Demonstration**: PrivEstate is a technical prototype developed for the Midnight Builder Challenge Level 4. It operates on the Midnight Preprod test network.
+* **Testnet Assets**: Do not transfer real-world capital, production credentials, or real securities to testnet addresses.
+* **Credential Safety**: Never commit `.env` files, wallet recovery phrases, or private keys to source control.
+* **Witness Confidentiality**: Private witness data is processed locally within the client and is never transmitted in cleartext over the network.
+
+---
+
+## 📚 Documentation
+
+* 📖 [docs/USAGE.md](docs/USAGE.md) — Comprehensive investor and auditor guide
+* 📋 [PROPOSAL.md](PROPOSAL.md) — Project proposal, problem statement, and architecture specification
+* 🧠 [contracts/privestate.compact](contracts/privestate.compact) — Midnight Compact smart contract and circuit definitions
+* 🧪 [tests/privestate.test.ts](tests/privestate.test.ts) — Full contract and circuit test suite
+* ⚙️ [.github/workflows/ci.yml](.github/workflows/ci.yml) — GitHub Actions continuous integration pipeline
+
+---
+
+## 🔭 Future Development
+
+Following Level 4 submission, the planned roadmap includes:
+
+* **Native Shielded Tokens**: Integration with Midnight native token standards for shielded fractional tokens.
+* **Secondary Market**: Privacy-preserving peer-to-peer share trading via atomic swaps.
+* **Confidential Dividend Distributions**: Automated rental payout distribution using shielded Midnight transactions.
+* **Multi-Property Portfolios**: Aggregate cross-property proof generation across diversified portfolios.
+* **Decentralized Syndicate Governance**: Anonymous token-weighted voting based on verified private ownership thresholds.
+* **Advanced Indexing**: Full blockchain transaction indexing integration as Midnight ecosystem indexer tools mature.
+
+---
+
+## 🌙 Built with Midnight
+
+> *"PrivEstate explores how financial applications can make financial facts verifiable without making every financial detail public."*
