@@ -92,6 +92,8 @@ export function App() {
           <Portfolio
             properties={midnight.properties}
             portfolio={midnight.portfolio}
+            transactionHistory={midnight.transactionHistory}
+            isRestoringState={midnight.isRestoringState}
             onUpdateHolding={midnight.updateHolding}
             onSelectPropertyForProof={handleSelectPropertyForProof}
           />
