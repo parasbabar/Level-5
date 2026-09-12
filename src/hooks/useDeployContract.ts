@@ -191,19 +191,63 @@ function createMidnightProviderFromConnectedAPI(api: ConnectedAPI): MidnightProv
   };
 }
 
-function createInMemoryPrivateStateProvider(): PrivateStateProvider<
+const LS_PRIVATE_STATE_KEY = 'privestate_v1_private_states';
+
+function createPersistentPrivateStateProvider(): PrivateStateProvider<
   PrivateStateId,
   PrivEstatePrivateState
 > {
   const store = new Map<string, PrivEstatePrivateState>();
+  try {
+    const raw = localStorage.getItem(LS_PRIVATE_STATE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      for (const [k, v] of Object.entries(parsed)) {
+        const ps = v as any;
+        store.set(k, {
+          investorOwnership: BigInt(ps.investorOwnership ?? '0'),
+          investmentAmount: BigInt(ps.investmentAmount ?? '0'),
+          rentalIncome: BigInt(ps.rentalIncome ?? '0'),
+          investorSecretKey: new Uint8Array(ps.investorSecretKey ?? 32),
+        });
+      }
+    }
+  } catch { /* ignore */ }
+
+  const save = () => {
+    try {
+      const obj: Record<string, any> = {};
+      for (const [k, v] of store.entries()) {
+        obj[k] = {
+          investorOwnership: v.investorOwnership.toString(),
+          investmentAmount: v.investmentAmount.toString(),
+          rentalIncome: v.rentalIncome.toString(),
+          investorSecretKey: Array.from(v.investorSecretKey),
+        };
+      }
+      localStorage.setItem(LS_PRIVATE_STATE_KEY, JSON.stringify(obj));
+    } catch { /* ignore */ }
+  };
+
   let contractAddress: string | null = null;
   const key = (id: string) => `${contractAddress}:${id}`;
   return {
     setContractAddress(addr: string) { contractAddress = addr; },
-    async set(id: string, state: PrivEstatePrivateState) { store.set(key(id), state); },
-    async get(id: string) { return store.get(key(id)) ?? null; },
-    async remove(id: string) { store.delete(key(id)); },
-    async clear() { store.clear(); },
+    async set(id: string, state: PrivEstatePrivateState) {
+      store.set(key(id), state);
+      store.set(id, state);
+      save();
+    },
+    async get(id: string) { return store.get(key(id)) ?? store.get(id) ?? null; },
+    async remove(id: string) {
+      store.delete(key(id));
+      store.delete(id);
+      save();
+    },
+    async clear() {
+      store.clear();
+      save();
+    },
     async setSigningKey(_addr: string, _sk: unknown) { /* no-op */ },
     async getSigningKey(_addr: string) { return null; },
     async removeSigningKey(_addr: string) { /* no-op */ },
@@ -227,7 +271,7 @@ export function useDeployContract(connectedApi: ConnectedAPI | null) {
   });
 
   const abortRef = useRef(false);
-  const privateStateProviderRef = useRef(createInMemoryPrivateStateProvider());
+  const privateStateProviderRef = useRef(createPersistentPrivateStateProvider());
 
   // On mount: try to restore a previously deployed contract
   useEffect(() => {
@@ -398,20 +442,28 @@ export function useDeployContract(connectedApi: ConnectedAPI | null) {
 
           // Race real indexer vs fallback
           const realWatch = (publicDataProvider as any).watchForTxData(txId);
-          const syntheticFallback: Promise<unknown> = new Promise((res) =>
-            setTimeout(() => {
-              const effectiveTxId = txId || capturedTxId || `tx-${Date.now().toString(16)}`;
-              res({
-                status: 'SucceedEntirely',
-                txId: effectiveTxId,
-                txHash: effectiveTxId,
-                identifiers: [effectiveTxId],
-                blockHeight: 0,
-                blockHash: '',
-                blockTimestamp: Date.now(),
-                blockAuthor: null,
-                tx: null,
-              });
+          const syntheticFallback: Promise<unknown> = new Promise((res, rej) =>
+            setTimeout(async () => {
+              if (capturedContractAddress) {
+                try {
+                  const state = await publicDataProvider.queryContractState(capturedContractAddress);
+                  if (state) {
+                    const effectiveTxId = txId || capturedTxId || `tx-${Date.now().toString(16)}`;
+                    return res({
+                      status: 'SucceedEntirely',
+                      txId: effectiveTxId,
+                      txHash: effectiveTxId,
+                      identifiers: [effectiveTxId],
+                      blockHeight: 0,
+                      blockHash: '',
+                      blockTimestamp: Date.now(),
+                      blockAuthor: null,
+                      tx: null,
+                    });
+                  }
+                } catch { /* ignore */ }
+              }
+              rej(new Error(`Transaction ${txId} timed out and could not be verified on-chain.`));
             }, INDEXER_CONFIRM_TIMEOUT_MS)
           );
 
@@ -424,20 +476,26 @@ export function useDeployContract(connectedApi: ConnectedAPI | null) {
 
           // Race real indexer vs fallback
           const realWatch = (publicDataProvider as any).watchForDeployTxData(contractAddress);
-          const syntheticFallback: Promise<unknown> = new Promise((res) =>
-            setTimeout(() => {
-              const effectiveTxId = capturedTxId || `tx-${Date.now().toString(16)}`;
-              res({
-                status: 'SucceedEntirely',
-                txId: effectiveTxId,
-                txHash: effectiveTxId,
-                identifiers: [effectiveTxId],
-                blockHeight: 0,
-                blockHash: '',
-                blockTimestamp: Date.now(),
-                blockAuthor: null,
-                tx: null,
-              });
+          const syntheticFallback: Promise<unknown> = new Promise((res, rej) =>
+            setTimeout(async () => {
+              try {
+                const state = await publicDataProvider.queryContractState(contractAddress);
+                if (state) {
+                  const effectiveTxId = capturedTxId || `tx-${Date.now().toString(16)}`;
+                  return res({
+                    status: 'SucceedEntirely',
+                    txId: effectiveTxId,
+                    txHash: effectiveTxId,
+                    identifiers: [effectiveTxId],
+                    blockHeight: 0,
+                    blockHash: '',
+                    blockTimestamp: Date.now(),
+                    blockAuthor: null,
+                    tx: null,
+                  });
+                }
+              } catch { /* ignore */ }
+              rej(new Error(`Deploy transaction for ${contractAddress} timed out and could not be verified on-chain.`));
             }, INDEXER_CONFIRM_TIMEOUT_MS)
           );
 

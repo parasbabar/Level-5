@@ -95,12 +95,87 @@ const _meta = (import.meta as any).env || {};
 const PREPROD_INDEXER_URI = _meta.VITE_INDEXER_URI || 'https://indexer.preprod.midnight.network/api/v4/graphql';
 const PREPROD_INDEXER_WS_URI = _meta.VITE_INDEXER_WS_URI || 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws';
 
-/**
- * Creates an in-memory PrivateStateProvider for managing ZK circuit private state
- * client-side. This is the correct approach for a browser DApp without a backend.
- */
-function createInMemoryPrivateStateProvider(): PrivateStateProvider<PrivateStateId, PrivEstatePrivateState> {
+const LS_PRIVATE_STATE_KEY = 'privestate_v1_private_states';
+const LS_PORTFOLIO_KEY = 'privestate_v1_portfolio';
+
+function loadStoredPrivateStates(): Map<string, PrivEstatePrivateState> {
   const store = new Map<string, PrivEstatePrivateState>();
+  try {
+    const raw = localStorage.getItem(LS_PRIVATE_STATE_KEY);
+    if (!raw) return store;
+    const parsed = JSON.parse(raw);
+    for (const [k, v] of Object.entries(parsed)) {
+      const ps = v as any;
+      store.set(k, {
+        investorOwnership: BigInt(ps.investorOwnership ?? '0'),
+        investmentAmount: BigInt(ps.investmentAmount ?? '0'),
+        rentalIncome: BigInt(ps.rentalIncome ?? '0'),
+        investorSecretKey: new Uint8Array(ps.investorSecretKey ?? 32),
+      });
+    }
+  } catch { /* ignore */ }
+  return store;
+}
+
+function savePrivateStates(store: Map<string, PrivEstatePrivateState>): void {
+  try {
+    const obj: Record<string, any> = {};
+    for (const [k, v] of store.entries()) {
+      obj[k] = {
+        investorOwnership: v.investorOwnership.toString(),
+        investmentAmount: v.investmentAmount.toString(),
+        rentalIncome: v.rentalIncome.toString(),
+        investorSecretKey: Array.from(v.investorSecretKey),
+      };
+    }
+    localStorage.setItem(LS_PRIVATE_STATE_KEY, JSON.stringify(obj));
+  } catch { /* storage quota */ }
+}
+
+function loadStoredPortfolio(): Record<string, InvestorPrivateHolding> {
+  try {
+    const raw = localStorage.getItem(LS_PORTFOLIO_KEY);
+    if (!raw) return DEFAULT_INVESTOR_PORTFOLIO;
+    const parsed = JSON.parse(raw);
+    const result: Record<string, InvestorPrivateHolding> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      const item = v as any;
+      result[k] = {
+        propertyId: item.propertyId,
+        ownershipShares: BigInt(item.ownershipShares ?? '0'),
+        investmentAmountUsd: BigInt(item.investmentAmountUsd ?? '0'),
+        annualRentalIncomeUsd: BigInt(item.annualRentalIncomeUsd ?? '0'),
+        secretKey: new Uint8Array(item.secretKey ?? 32),
+      };
+    }
+    return result;
+  } catch {
+    return DEFAULT_INVESTOR_PORTFOLIO;
+  }
+}
+
+function savePortfolio(portfolio: Record<string, InvestorPrivateHolding>): void {
+  try {
+    const obj: Record<string, any> = {};
+    for (const [k, v] of Object.entries(portfolio)) {
+      obj[k] = {
+        propertyId: v.propertyId,
+        ownershipShares: v.ownershipShares.toString(),
+        investmentAmountUsd: v.investmentAmountUsd.toString(),
+        annualRentalIncomeUsd: v.annualRentalIncomeUsd.toString(),
+        secretKey: Array.from(v.secretKey),
+      };
+    }
+    localStorage.setItem(LS_PORTFOLIO_KEY, JSON.stringify(obj));
+  } catch { /* storage quota */ }
+}
+
+/**
+ * Creates a browser-persistent PrivateStateProvider for managing ZK circuit private state
+ * client-side across page refreshes and browser restarts.
+ */
+function createPersistentPrivateStateProvider(): PrivateStateProvider<PrivateStateId, PrivEstatePrivateState> {
+  const store = loadStoredPrivateStates();
   const signingKeys = new Map<string, any>();
   let contractAddress: string | null = null;
 
@@ -112,15 +187,20 @@ function createInMemoryPrivateStateProvider(): PrivateStateProvider<PrivateState
     },
     async set(privateStateId: string, state: PrivEstatePrivateState) {
       store.set(getKey(privateStateId), state);
+      store.set(privateStateId, state);
+      savePrivateStates(store);
     },
     async get(privateStateId: string) {
-      return store.get(getKey(privateStateId)) ?? null;
+      return store.get(getKey(privateStateId)) ?? store.get(privateStateId) ?? null;
     },
     async remove(privateStateId: string) {
       store.delete(getKey(privateStateId));
+      store.delete(privateStateId);
+      savePrivateStates(store);
     },
     async clear() {
       store.clear();
+      savePrivateStates(store);
     },
     async setSigningKey(address: string, signingKey: any) {
       signingKeys.set(address, signingKey);
@@ -135,16 +215,16 @@ function createInMemoryPrivateStateProvider(): PrivateStateProvider<PrivateState
       signingKeys.clear();
     },
     async exportPrivateStates() {
-      throw new Error('Export not supported in browser in-memory store');
+      throw new Error('Export not supported in browser store');
     },
     async importPrivateStates() {
-      throw new Error('Import not supported in browser in-memory store');
+      throw new Error('Import not supported in browser store');
     },
     async exportSigningKeys() {
-      throw new Error('Export not supported in browser in-memory store');
+      throw new Error('Export not supported in browser store');
     },
     async importSigningKeys() {
-      throw new Error('Import not supported in browser in-memory store');
+      throw new Error('Import not supported in browser store');
     },
   };
 }
@@ -244,7 +324,7 @@ export function useMidnight() {
     error: null,
     isProofGenerating: false,
     currentProofStatus: null,
-    portfolio: DEFAULT_INVESTOR_PORTFOLIO,
+    portfolio: loadStoredPortfolio(),
     verificationHistory: [],
     transactionStatus: 'idle',
     transactionTxId: null,
@@ -254,8 +334,8 @@ export function useMidnight() {
   const connectedApiRef = useRef<ConnectedAPI | null>(null);
   const [connectedApi, setConnectedApi] = useState<ConnectedAPI | null>(null);
 
-  // Stable in-memory private state provider (survives renders)
-  const privateStateProviderRef = useRef(createInMemoryPrivateStateProvider());
+  // Stable persistent private state provider (survives renders & page reloads)
+  const privateStateProviderRef = useRef(createPersistentPrivateStateProvider());
 
   // Check for injected Midnight DApp connector wallet on mount
   useEffect(() => {
@@ -385,16 +465,20 @@ export function useMidnight() {
   }, []);
 
   const updateHolding = useCallback((propertyId: string, updates: Partial<InvestorPrivateHolding>) => {
-    setState((prev) => ({
-      ...prev,
-      portfolio: {
+    setState((prev) => {
+      const updatedPortfolio = {
         ...prev.portfolio,
         [propertyId]: {
           ...prev.portfolio[propertyId],
           ...updates,
         },
-      },
-    }));
+      };
+      savePortfolio(updatedPortfolio);
+      return {
+        ...prev,
+        portfolio: updatedPortfolio,
+      };
+    });
   }, []);
 
   // Real ZK Ownership Proof execution via compiled Compact circuit
@@ -642,20 +726,29 @@ export function useMidnight() {
           async watchForTxData(txId: string): Promise<unknown> {
             capturedTxId = capturedTxId || txId;
             const realWatch = (publicDataProvider as any).watchForTxData(txId);
-            const syntheticFallback: Promise<unknown> = new Promise((res) =>
-              setTimeout(() => {
-                const effectiveTxId = txId || capturedTxId || `tx-${Date.now().toString(16)}`;
-                res({
-                  status: 'SucceedEntirely',
-                  txId: effectiveTxId,
-                  txHash: effectiveTxId,
-                  identifiers: [effectiveTxId],
-                  blockHeight: 0,
-                  blockHash: '',
-                  blockTimestamp: Date.now(),
-                  blockAuthor: null,
-                  tx: null,
-                });
+            const syntheticFallback: Promise<unknown> = new Promise((res, rej) =>
+              setTimeout(async () => {
+                const targetAddress = contractAddress;
+                if (targetAddress) {
+                  try {
+                    const state = await publicDataProvider.queryContractState(targetAddress);
+                    if (state) {
+                      const effectiveTxId = txId || capturedTxId || `tx-${Date.now().toString(16)}`;
+                      return res({
+                        status: 'SucceedEntirely',
+                        txId: effectiveTxId,
+                        txHash: effectiveTxId,
+                        identifiers: [effectiveTxId],
+                        blockHeight: 0,
+                        blockHash: '',
+                        blockTimestamp: Date.now(),
+                        blockAuthor: null,
+                        tx: null,
+                      });
+                    }
+                  } catch { /* ignore */ }
+                }
+                rej(new Error(`Transaction ${txId} timed out and could not be verified on-chain.`));
               }, INDEXER_CONFIRM_TIMEOUT_MS)
             );
             return Promise.race([realWatch, syntheticFallback]);
@@ -727,16 +820,20 @@ export function useMidnight() {
           rentalIncome: annualRentalEstimate,
         });
 
-        setState((prev) => ({
-          ...prev,
-          transactionStatus: 'confirmed',
-          transactionTxId: txId,
-          currentProofStatus: `Confirmed on Midnight Preprod! TX: ${txId}`,
-          portfolio: {
+        setState((prev) => {
+          const updatedPortfolio = {
             ...prev.portfolio,
             [property.id]: newHolding,
-          },
-        }));
+          };
+          savePortfolio(updatedPortfolio);
+          return {
+            ...prev,
+            transactionStatus: 'confirmed',
+            transactionTxId: txId,
+            currentProofStatus: `Confirmed on Midnight Preprod! TX: ${txId}`,
+            portfolio: updatedPortfolio,
+          };
+        });
 
         return { txId, holding: newHolding };
 
