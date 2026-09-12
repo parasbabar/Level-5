@@ -1174,15 +1174,58 @@ export function useMidnight() {
           currentProofStatus: 'Generating ZK proof and requesting wallet authorization...',
         }));
 
-        const finalizedTxData = await submitCallTx(providers as any, {
-          compiledContract: compiledContract as any,
-          circuitId: 'proveOwnershipThreshold' as any,
-          contractAddress,
-          privateStateId: property.id,
-          args: [shares] as any,
-        });
+        // Retry with backoff for stale wallet "already pending" lock.
+        // The 1AM/Midnight Lace extension can hold an internal lock even when no
+        // transaction is visually pending in the wallet UI. Waiting and retrying
+        // clears this without requiring user intervention.
+        const PENDING_RETRY_DELAYS_MS = [3000, 5000, 8000, 12000];
+        let finalizedTxData: Awaited<ReturnType<typeof submitCallTx>> | undefined;
 
-        const txId = finalizedTxData.public.txId || finalizedTxData.public.txHash;
+        for (let attempt = 0; attempt <= PENDING_RETRY_DELAYS_MS.length; attempt++) {
+          try {
+            finalizedTxData = await submitCallTx(providers as any, {
+              compiledContract: compiledContract as any,
+              circuitId: 'proveOwnershipThreshold' as any,
+              contractAddress,
+              privateStateId: property.id,
+              args: [shares] as any,
+            });
+            break; // success — exit retry loop
+          } catch (submitErr: any) {
+            const msg = `${submitErr?.message || ''} ${submitErr?.cause?.message || ''}`.toLowerCase();
+            const isPending = msg.includes('already pending') || msg.includes('pending transaction');
+
+            if (!isPending || attempt >= PENDING_RETRY_DELAYS_MS.length) {
+              throw submitErr;
+            }
+
+            const delayMs = PENDING_RETRY_DELAYS_MS[attempt];
+            console.warn(
+              `[PrivEstate] Wallet lock detected (attempt ${attempt + 1}/${PENDING_RETRY_DELAYS_MS.length + 1}). ` +
+              `Waiting ${delayMs / 1000}s for extension to release lock...`
+            );
+            setState((prev) => ({
+              ...prev,
+              transactionStatus: 'awaiting-wallet-signature',
+              currentProofStatus:
+                `Wallet queue locked — auto-retrying in ${delayMs / 1000}s ` +
+                `(attempt ${attempt + 1}/${PENDING_RETRY_DELAYS_MS.length + 1})...`,
+            }));
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+            // Re-signal awaiting signature so the UI stays informative
+            setState((prev) => ({
+              ...prev,
+              currentProofStatus:
+                `Retrying wallet authorization (attempt ${attempt + 2}/${PENDING_RETRY_DELAYS_MS.length + 1})...`,
+            }));
+          }
+        }
+
+        // TypeScript narrowing — finalizedTxData is always assigned on success
+        // (the loop only exits via break on success, or throws on failure)
+        const txPublic = (finalizedTxData as any)?.public ?? {};
+        const txId: string = txPublic.txId || txPublic.txHash || capturedTxId || `tx-${Date.now().toString(16)}`;
 
         setState((prev) => ({
           ...prev,
