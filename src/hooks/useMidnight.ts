@@ -1258,32 +1258,35 @@ export function useMidnight() {
         return { txId, holding: newHolding };
 
       } catch (err: any) {
-        const isRejected = err?.message?.toLowerCase().includes('reject') ||
-                           err?.message?.toLowerCase().includes('cancel') ||
-                           err?.message?.toLowerCase().includes('denied') ||
+        const rawMessage = `${err?.message || ''} ${err?.cause?.message || ''} ${err?.cause || ''} ${String(err)}`;
+        const lower = rawMessage.toLowerCase();
+
+        const isRejected = lower.includes('reject') ||
+                           lower.includes('cancel') ||
+                           lower.includes('denied') ||
                            err?.code === 4001;
 
-        const isConfigError = err?.message?.includes('Contract address not configured') ||
-                              err?.message?.includes('deploy-preprod');
+        const isPendingError = lower.includes('already pending') ||
+                               lower.includes('pending transaction');
 
-        const isProofServerError = err?.message?.toLowerCase().includes('proof') ||
-                                   err?.message?.toLowerCase().includes('proving') ||
-                                   err?.message?.toLowerCase().includes('zkir');
+        const isDisconnectedError = lower.includes('wallet ui disconnected') ||
+                                    lower.includes('error forwarding message') ||
+                                    lower.includes('request failed') ||
+                                    lower.includes('disconnected');
 
-        const isPendingError = err?.message?.toLowerCase().includes('already pending') ||
-                               err?.message?.toLowerCase().includes('pending transaction');
+        const isConfigError = rawMessage.includes('Contract address not configured') ||
+                              rawMessage.includes('deploy-preprod');
 
-        const isDisconnectedError = err?.message?.includes('Wallet UI disconnected') ||
-                                    err?.message?.includes('Error forwarding message') ||
-                                    err?.message?.includes('Request failed') ||
-                                    err?.message?.includes('disconnected');
+        const isProofServerError = lower.includes('proof') ||
+                                   lower.includes('proving') ||
+                                   lower.includes('zkir');
 
         let userFacingError: string;
         if (isRejected) {
           userFacingError = 'Transaction rejected by user in Midnight Lace / 1AM Wallet.';
         } else if (isPendingError) {
           userFacingError =
-            'A previous transaction request is still pending in your Midnight Lace Wallet. Open the 1AM / Midnight Lace extension from your browser toolbar to approve or reject the pending prompt, then try again.';
+            'A transaction is already pending in your 1AM / Midnight Lace Wallet. Open the 1AM extension icon from your browser toolbar, click Reject or Cancel on the pending request, then click Retry below.';
         } else if (isDisconnectedError) {
           userFacingError =
             'Midnight wallet popup was closed or disconnected. Please open the 1AM (Midnight Lace) extension in your browser toolbar to wake it up, reconnect, and try again.';

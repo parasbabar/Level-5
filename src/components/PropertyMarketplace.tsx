@@ -370,12 +370,25 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                 )}
 
                 {transactionError && (
-                  <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 flex items-start gap-2.5">
-                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
-                    <div>
-                      <span className="font-bold">Transaction Failed:</span>
-                      <p className="mt-0.5">{transactionError}</p>
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 space-y-2">
+                    <div className="flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                      <div>
+                        <span className="font-bold text-rose-200">Wallet Prompt Status:</span>
+                        <p className="mt-0.5 text-rose-300/90">{transactionError}</p>
+                      </div>
                     </div>
+                    {transactionError.toLowerCase().includes('pending') && (
+                      <div className="pt-2 border-t border-rose-500/20 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => onResetTransaction()}
+                          className="px-2.5 py-1 text-[11px] font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 rounded border border-rose-500/40 transition"
+                        >
+                          Reset & Retry
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
