@@ -8,6 +8,7 @@ interface PortfolioProps {
   portfolio: Record<string, InvestorPrivateHolding>;
   transactionHistory?: MidnightTransactionRecord[];
   isRestoringState?: boolean;
+  restorationError?: string | null;
   onUpdateHolding: (propertyId: string, updates: Partial<InvestorPrivateHolding>) => void;
   onSelectPropertyForProof: (property: PropertyMetadata, type: 'ownership' | 'compliance' | 'rental') => void;
 }
@@ -17,6 +18,7 @@ export const Portfolio: React.FC<PortfolioProps> = ({
   portfolio,
   transactionHistory = [],
   isRestoringState = false,
+  restorationError = null,
   onUpdateHolding,
   onSelectPropertyForProof,
 }) => {
@@ -57,6 +59,17 @@ export const Portfolio: React.FC<PortfolioProps> = ({
             <span className="block text-indigo-300/80 mt-0.5">
               Reconstructing client-side witness state and verifying on-chain ledger records for your wallet.
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Restoration Error Banner */}
+      {restorationError && (
+        <div className="bg-rose-950/60 border border-rose-500/40 rounded-xl p-4 flex items-center gap-3 text-rose-200">
+          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+          <div className="text-xs">
+            <strong className="text-rose-100">Portfolio restoration encountered an issue:</strong>
+            <span className="block text-rose-300/90 mt-0.5">{restorationError}</span>
           </div>
         </div>
       )}

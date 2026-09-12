@@ -94,6 +94,7 @@ export function App() {
             portfolio={midnight.portfolio}
             transactionHistory={midnight.transactionHistory}
             isRestoringState={midnight.isRestoringState}
+            restorationError={midnight.error}
             onUpdateHolding={midnight.updateHolding}
             onSelectPropertyForProof={handleSelectPropertyForProof}
           />

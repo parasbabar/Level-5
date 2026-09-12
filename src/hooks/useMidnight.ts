@@ -108,42 +108,139 @@ setNetworkId(PREPROD_NETWORK_ID);
 const _meta = (import.meta as any).env || {};
 const PREPROD_INDEXER_URI = _meta.VITE_INDEXER_URI || 'https://indexer.preprod.midnight.network/api/v4/graphql';
 const PREPROD_INDEXER_WS_URI = _meta.VITE_INDEXER_WS_URI || 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws';
+export const DEFAULT_PREPROD_CONTRACT_ADDRESS = '2e5e3eea72733c09f794677002d0a0840163b3b3da1d6e661bc4dd1b421eaab9';
 
-function getWalletStorageKey(prefix: string, walletId: string | null, contractAddress?: string | null): string {
-  const metaEnv = (import.meta as any).env || {};
-  const contract = contractAddress || metaEnv.VITE_CONTRACT_ADDRESS || 'default_contract';
-  const wallet = walletId ? walletId.slice(-16) : 'anonymous';
-  return `${prefix}_${wallet}_${contract}`;
-}
-
-function loadWalletPortfolio(walletId: string | null, contractAddress?: string | null): Record<string, InvestorPrivateHolding> {
-  if (!walletId) return DEFAULT_INVESTOR_PORTFOLIO;
+/**
+ * Returns the effective deployed contract address across environment and browser storage.
+ */
+export function getEffectiveContractAddress(): string {
+  const metaEnv = (typeof import.meta !== 'undefined' ? (import.meta as any).env : {}) || {};
+  const envAddr = (metaEnv.VITE_CONTRACT_ADDRESS || '').trim();
+  if (envAddr) return envAddr;
   try {
-    const key = getWalletStorageKey('privestate_v1_portfolio', walletId, contractAddress);
-    const raw = localStorage.getItem(key);
-    if (!raw) return DEFAULT_INVESTOR_PORTFOLIO;
-    const parsed = JSON.parse(raw);
-    const result: Record<string, InvestorPrivateHolding> = {};
-    for (const [k, v] of Object.entries(parsed)) {
-      const item = v as any;
-      result[k] = {
-        propertyId: item.propertyId,
-        ownershipShares: BigInt(item.ownershipShares ?? '0'),
-        investmentAmountUsd: BigInt(item.investmentAmountUsd ?? '0'),
-        annualRentalIncomeUsd: BigInt(item.annualRentalIncomeUsd ?? '0'),
-        secretKey: new Uint8Array(item.secretKey ?? 32),
-      };
+    const raw = localStorage.getItem('privestate_v1_deploy');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.contractAddress && typeof parsed.contractAddress === 'string') {
+        return parsed.contractAddress.trim();
+      }
     }
-    return result;
-  } catch {
-    return DEFAULT_INVESTOR_PORTFOLIO;
-  }
+  } catch { /* ignore */ }
+  return DEFAULT_PREPROD_CONTRACT_ADDRESS;
 }
 
-function saveWalletPortfolio(walletId: string | null, portfolio: Record<string, InvestorPrivateHolding>, contractAddress?: string | null): void {
+/**
+ * Computes a non-sensitive, safe fingerprint of the wallet identifier for logs.
+ * Never outputs raw secret keys or full witness data.
+ */
+export function getSafeWalletFingerprint(walletId: string | null | undefined): string {
+  if (!walletId) return 'none';
+  const clean = walletId.trim();
+  if (clean.length <= 20) return clean;
+  return `${clean.slice(0, 10)}...${clean.slice(-8)}`;
+}
+
+/**
+ * Derives a deterministic, canonical wallet identifier from the connected wallet credentials.
+ */
+export function getDeterministicWalletId(
+  shieldedAddress?: string | null,
+  coinPublicKey?: string | null
+): string | null {
+  const cleanPk = coinPublicKey?.trim() || null;
+  const cleanAddr = shieldedAddress?.trim() || null;
+  return cleanPk || cleanAddr || null;
+}
+
+/**
+ * Computes deterministic lookup candidate keys for local client-side persistence.
+ */
+function getCandidateStorageKeys(
+  prefix: string,
+  walletId: string | null,
+  contractAddress?: string | null,
+  alternateWalletId?: string | null
+): string[] {
+  const contract = contractAddress || getEffectiveContractAddress();
+  const keys: string[] = [];
+
+  const addKeysForId = (id: string | null) => {
+    if (!id) return;
+    const cleanId = id.trim();
+    // 1. Primary deterministic key: prefix + full wallet ID + contract address
+    keys.push(`${prefix}_${cleanId}_${contract}`);
+    // 2. 16-character suffix key (for backwards compatibility with existing sessions)
+    keys.push(`${prefix}_${cleanId.slice(-16)}_${contract}`);
+    // 3. Fallbacks with default contract suffix
+    keys.push(`${prefix}_${cleanId.slice(-16)}_default_contract`);
+    keys.push(`${prefix}_${cleanId.slice(-16)}_${DEFAULT_PREPROD_CONTRACT_ADDRESS}`);
+  };
+
+  addKeysForId(walletId);
+  if (alternateWalletId && alternateWalletId !== walletId) {
+    addKeysForId(alternateWalletId);
+  }
+
+  return Array.from(new Set(keys));
+}
+
+function loadWalletPortfolio(
+  walletId: string | null,
+  contractAddress?: string | null,
+  alternateWalletId?: string | null
+): { portfolio: Record<string, InvestorPrivateHolding>; found: boolean } {
+  if (!walletId) return { portfolio: DEFAULT_INVESTOR_PORTFOLIO, found: false };
+  const candidateKeys = getCandidateStorageKeys('privestate_v1_portfolio', walletId, contractAddress, alternateWalletId);
+
+  for (const key of candidateKeys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') continue;
+
+      const result: Record<string, InvestorPrivateHolding> = {};
+      let hasValidItems = false;
+
+      for (const [k, v] of Object.entries(parsed)) {
+        const item = v as any;
+        if (!item) continue;
+        const secretKeyArr = Array.isArray(item.secretKey)
+          ? item.secretKey
+          : typeof item.secretKey === 'object' && item.secretKey !== null
+          ? Object.values(item.secretKey)
+          : new Array(32).fill(0);
+
+        result[k] = {
+          propertyId: item.propertyId || k,
+          ownershipShares: BigInt(item.ownershipShares ?? '0'),
+          investmentAmountUsd: BigInt(item.investmentAmountUsd ?? '0'),
+          annualRentalIncomeUsd: BigInt(item.annualRentalIncomeUsd ?? '0'),
+          secretKey: new Uint8Array(secretKeyArr),
+        };
+        hasValidItems = true;
+      }
+
+      if (hasValidItems) {
+        return { portfolio: result, found: true };
+      }
+    } catch {
+      // Continue to next candidate key
+    }
+  }
+
+  return { portfolio: DEFAULT_INVESTOR_PORTFOLIO, found: false };
+}
+
+function saveWalletPortfolio(
+  walletId: string | null,
+  portfolio: Record<string, InvestorPrivateHolding>,
+  contractAddress?: string | null
+): void {
   if (!walletId) return;
+  const contract = contractAddress || getEffectiveContractAddress();
   try {
-    const key = getWalletStorageKey('privestate_v1_portfolio', walletId, contractAddress);
+    const primaryKey = `privestate_v1_portfolio_${walletId.trim()}_${contract}`;
     const obj: Record<string, any> = {};
     for (const [k, v] of Object.entries(portfolio)) {
       obj[k] = {
@@ -154,35 +251,75 @@ function saveWalletPortfolio(walletId: string | null, portfolio: Record<string, 
         secretKey: Array.from(v.secretKey),
       };
     }
-    localStorage.setItem(key, JSON.stringify(obj));
-  } catch { /* storage quota */ }
-}
+    const json = JSON.stringify(obj);
+    localStorage.setItem(primaryKey, json);
 
-function loadWalletPrivateStates(walletId: string | null, contractAddress?: string | null): Map<string, PrivEstatePrivateState> {
-  const store = new Map<string, PrivEstatePrivateState>();
-  if (!walletId) return store;
-  try {
-    const key = getWalletStorageKey('privestate_v1_private_states', walletId, contractAddress);
-    const raw = localStorage.getItem(key);
-    if (!raw) return store;
-    const parsed = JSON.parse(raw);
-    for (const [k, v] of Object.entries(parsed)) {
-      const ps = v as any;
-      store.set(k, {
-        investorOwnership: BigInt(ps.investorOwnership ?? '0'),
-        investmentAmount: BigInt(ps.investmentAmount ?? '0'),
-        rentalIncome: BigInt(ps.rentalIncome ?? '0'),
-        investorSecretKey: new Uint8Array(ps.investorSecretKey ?? 32),
-      });
+    // Also write to legacy suffix key for backwards compatibility
+    const suffixKey = `privestate_v1_portfolio_${walletId.trim().slice(-16)}_${contract}`;
+    if (suffixKey !== primaryKey) {
+      localStorage.setItem(suffixKey, json);
     }
-  } catch { /* ignore */ }
-  return store;
+  } catch {
+    /* storage quota */
+  }
 }
 
-function saveWalletPrivateStates(walletId: string | null, store: Map<string, PrivEstatePrivateState>, contractAddress?: string | null): void {
+function loadWalletPrivateStates(
+  walletId: string | null,
+  contractAddress?: string | null,
+  alternateWalletId?: string | null
+): { store: Map<string, PrivEstatePrivateState>; found: boolean } {
+  const store = new Map<string, PrivEstatePrivateState>();
+  if (!walletId) return { store, found: false };
+
+  const candidateKeys = getCandidateStorageKeys('privestate_v1_private_states', walletId, contractAddress, alternateWalletId);
+
+  for (const key of candidateKeys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') continue;
+
+      let hasValid = false;
+      for (const [k, v] of Object.entries(parsed)) {
+        const ps = v as any;
+        if (!ps) continue;
+        const skArr = Array.isArray(ps.investorSecretKey)
+          ? ps.investorSecretKey
+          : typeof ps.investorSecretKey === 'object' && ps.investorSecretKey !== null
+          ? Object.values(ps.investorSecretKey)
+          : new Array(32).fill(0);
+
+        store.set(k, {
+          investorOwnership: BigInt(ps.investorOwnership ?? '0'),
+          investmentAmount: BigInt(ps.investmentAmount ?? '0'),
+          rentalIncome: BigInt(ps.rentalIncome ?? '0'),
+          investorSecretKey: new Uint8Array(skArr),
+        });
+        hasValid = true;
+      }
+
+      if (hasValid) {
+        return { store, found: true };
+      }
+    } catch {
+      // Continue
+    }
+  }
+
+  return { store, found: false };
+}
+
+function saveWalletPrivateStates(
+  walletId: string | null,
+  store: Map<string, PrivEstatePrivateState>,
+  contractAddress?: string | null
+): void {
   if (!walletId) return;
+  const contract = contractAddress || getEffectiveContractAddress();
   try {
-    const key = getWalletStorageKey('privestate_v1_private_states', walletId, contractAddress);
+    const primaryKey = `privestate_v1_private_states_${walletId.trim()}_${contract}`;
     const obj: Record<string, any> = {};
     for (const [k, v] of store.entries()) {
       obj[k] = {
@@ -192,28 +329,60 @@ function saveWalletPrivateStates(walletId: string | null, store: Map<string, Pri
         investorSecretKey: Array.from(v.investorSecretKey),
       };
     }
-    localStorage.setItem(key, JSON.stringify(obj));
-  } catch { /* storage quota */ }
-}
+    const json = JSON.stringify(obj);
+    localStorage.setItem(primaryKey, json);
 
-function loadWalletTxHistory(walletId: string | null, contractAddress?: string | null): MidnightTransactionRecord[] {
-  if (!walletId) return [];
-  try {
-    const key = getWalletStorageKey('privestate_v1_tx_history', walletId, contractAddress);
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    return JSON.parse(raw) as MidnightTransactionRecord[];
+    const suffixKey = `privestate_v1_private_states_${walletId.trim().slice(-16)}_${contract}`;
+    if (suffixKey !== primaryKey) {
+      localStorage.setItem(suffixKey, json);
+    }
   } catch {
-    return [];
+    /* storage quota */
   }
 }
 
-function saveWalletTxHistory(walletId: string | null, history: MidnightTransactionRecord[], contractAddress?: string | null): void {
+function loadWalletTxHistory(
+  walletId: string | null,
+  contractAddress?: string | null,
+  alternateWalletId?: string | null
+): MidnightTransactionRecord[] {
+  if (!walletId) return [];
+  const candidateKeys = getCandidateStorageKeys('privestate_v1_tx_history', walletId, contractAddress, alternateWalletId);
+
+  for (const key of candidateKeys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as MidnightTransactionRecord[];
+      }
+    } catch {
+      // Continue
+    }
+  }
+  return [];
+}
+
+function saveWalletTxHistory(
+  walletId: string | null,
+  history: MidnightTransactionRecord[],
+  contractAddress?: string | null
+): void {
   if (!walletId) return;
+  const contract = contractAddress || getEffectiveContractAddress();
   try {
-    const key = getWalletStorageKey('privestate_v1_tx_history', walletId, contractAddress);
-    localStorage.setItem(key, JSON.stringify(history));
-  } catch { /* storage quota */ }
+    const primaryKey = `privestate_v1_tx_history_${walletId.trim()}_${contract}`;
+    const json = JSON.stringify(history);
+    localStorage.setItem(primaryKey, json);
+
+    const suffixKey = `privestate_v1_tx_history_${walletId.trim().slice(-16)}_${contract}`;
+    if (suffixKey !== primaryKey) {
+      localStorage.setItem(suffixKey, json);
+    }
+  } catch {
+    /* storage quota */
+  }
 }
 
 /**
@@ -221,11 +390,11 @@ function saveWalletTxHistory(walletId: string | null, history: MidnightTransacti
  */
 function createPersistentPrivateStateProvider(getWalletId: () => string | null): PrivateStateProvider<PrivateStateId, PrivEstatePrivateState> {
   let activeWalletId = getWalletId();
-  let store = loadWalletPrivateStates(activeWalletId);
+  let store = loadWalletPrivateStates(activeWalletId).store;
   const signingKeys = new Map<string, any>();
   let contractAddress: string | null = null;
 
-  const getKey = (privateStateId: string) => `${contractAddress}:${privateStateId}`;
+  const getKey = (privateStateId: string) => `${contractAddress || getEffectiveContractAddress()}:${privateStateId}`;
 
   return {
     setContractAddress(address: string) {
@@ -235,7 +404,7 @@ function createPersistentPrivateStateProvider(getWalletId: () => string | null):
       const walletId = getWalletId();
       if (walletId !== activeWalletId) {
         activeWalletId = walletId;
-        store = loadWalletPrivateStates(activeWalletId, contractAddress);
+        store = loadWalletPrivateStates(activeWalletId, contractAddress).store;
       }
       store.set(getKey(privateStateId), state);
       store.set(privateStateId, state);
@@ -245,7 +414,7 @@ function createPersistentPrivateStateProvider(getWalletId: () => string | null):
       const walletId = getWalletId();
       if (walletId !== activeWalletId) {
         activeWalletId = walletId;
-        store = loadWalletPrivateStates(activeWalletId, contractAddress);
+        store = loadWalletPrivateStates(activeWalletId, contractAddress).store;
       }
       return store.get(getKey(privateStateId)) ?? store.get(privateStateId) ?? null;
     },
@@ -253,7 +422,7 @@ function createPersistentPrivateStateProvider(getWalletId: () => string | null):
       const walletId = getWalletId();
       if (walletId !== activeWalletId) {
         activeWalletId = walletId;
-        store = loadWalletPrivateStates(activeWalletId, contractAddress);
+        store = loadWalletPrivateStates(activeWalletId, contractAddress).store;
       }
       store.delete(getKey(privateStateId));
       store.delete(privateStateId);
@@ -293,11 +462,6 @@ function createPersistentPrivateStateProvider(getWalletId: () => string | null):
 /**
  * Creates a WalletProvider adapter that bridges the Midnight DApp Connector's
  * ConnectedAPI to the WalletProvider interface expected by midnight-js-contracts.
- *
- * The ConnectedAPI provides:
- *  - balanceUnsealedTransaction(tx) → adds fees, inputs, outputs to unsealed tx
- *  - submitTransaction(tx) → submits sealed+balanced tx to Midnight network
- *  - getShieldedAddresses() → provides CoinPublicKey and EncPublicKey
  */
 function createWalletProviderFromConnectedAPI(
   api: ConnectedAPI,
@@ -328,8 +492,6 @@ function createWalletProviderFromConnectedAPI(
       const txHex = Buffer.from(txBytes).toString('hex');
       const result = await (api as any).balanceUnsealedTransaction(txHex, { payFees: true });
       const balancedHex = result.tx;
-      // Return hex string directly — Transaction.deserialize requires type markers
-      // not available at this call site, and downstream code handles hex strings.
       return balancedHex;
     },
   };
@@ -371,8 +533,6 @@ function createMidnightProviderFromConnectedAPI(api: ConnectedAPI): MidnightProv
   };
 }
 
-
-
 export function useMidnight() {
   const currentWalletIdRef = useRef<string | null>(null);
 
@@ -403,10 +563,16 @@ export function useMidnight() {
   const privateStateProviderRef = useRef(createPersistentPrivateStateProvider(() => currentWalletIdRef.current));
 
   // Wallet-isolated State Restoration & Indexer Verification
-  const restoreWalletState = useCallback(async (walletId: string) => {
+  const restoreWalletState = useCallback(async (walletId: string, alternateId?: string | null) => {
     currentWalletIdRef.current = walletId;
-    const metaEnv = (import.meta as any).env || {};
-    const contractAddress = metaEnv.VITE_CONTRACT_ADDRESS || '';
+    const contractAddress = getEffectiveContractAddress();
+    const safeFingerprint = getSafeWalletFingerprint(walletId);
+
+    console.log('[PrivEstate][RESTORE] walletId =', safeFingerprint);
+    console.log('[PrivEstate][RESTORE] contractAddress =', contractAddress);
+
+    const privateStateKey = `privestate_v1_private_states_${walletId.trim()}_${contractAddress}`;
+    console.log('[PrivEstate][RESTORE] private state key =', privateStateKey);
 
     setState((prev) => ({
       ...prev,
@@ -415,8 +581,13 @@ export function useMidnight() {
     }));
 
     try {
-      const restoredPortfolio = loadWalletPortfolio(walletId, contractAddress);
-      const rawTxHistory = loadWalletTxHistory(walletId, contractAddress);
+      const { portfolio: restoredPortfolio, found: portfolioFound } = loadWalletPortfolio(walletId, contractAddress, alternateId);
+      const { found: privateStateFound } = loadWalletPrivateStates(walletId, contractAddress, alternateId);
+      const rawTxHistory = loadWalletTxHistory(walletId, contractAddress, alternateId);
+
+      console.log('[PrivEstate][RESTORE] stored portfolio found =', portfolioFound);
+      console.log('[PrivEstate][RESTORE] private state found =', privateStateFound);
+      console.log('[PrivEstate][RESTORE] tx history count =', rawTxHistory.length);
 
       let verifiedTxHistory: MidnightTransactionRecord[] = [];
       if (rawTxHistory.length > 0) {
@@ -441,62 +612,46 @@ export function useMidnight() {
 
       const hasHoldings = Object.values(restoredPortfolio).some((h) => h.ownershipShares > 0n);
 
+      console.log('[PrivEstate][RESTORE] setPortfolio called');
+      console.log('[PrivEstate][RESTORE] setTransactionHistory called');
+
       setState((prev) => ({
         ...prev,
         isRestoringState: false,
         portfolio: restoredPortfolio,
         transactionHistory: verifiedTxHistory,
         currentProofStatus: hasHoldings ? 'Portfolio restored' : 'No private holdings yet',
+        error: null,
       }));
-    } catch (err) {
-      console.warn('State restoration warning:', err);
+    } catch (err: any) {
+      console.error('[PrivEstate][RESTORE] restoration error:', err);
       setState((prev) => ({
         ...prev,
         isRestoringState: false,
-        currentProofStatus: null,
+        error: `Portfolio restoration failed: ${err?.message || String(err)}`,
+        currentProofStatus: `Restoration failed: ${err?.message || 'Check connection'}`,
       }));
     }
-  }, []);
-
-  // Check for injected Midnight DApp connector wallet on mount
-  useEffect(() => {
-    const checkWallet = () => {
-      if (typeof window !== 'undefined' && window.midnight) {
-        const wallets = Object.values(window.midnight);
-        if (wallets.length > 0) {
-          const defaultWallet = wallets[0];
-          setState((prev) => ({
-            ...prev,
-            walletName: defaultWallet.name,
-            walletIcon: defaultWallet.icon,
-          }));
-        }
-      }
-    };
-
-    checkWallet();
-    const timer = setTimeout(checkWallet, 1000);
-    return () => clearTimeout(timer);
   }, []);
 
   // Poll for shielded address during wallet sync
   const pollForShieldedAddress = useCallback(async (api: ConnectedAPI) => {
     const MAX_ATTEMPTS = 60;
-    const INTERVAL_MS = 5000;
+    const INTERVAL_MS = 3000;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {
         const addrs = await api.getShieldedAddresses();
-        if (addrs.shieldedAddress) {
-          const walletId = addrs.shieldedAddress;
+        const walletId = getDeterministicWalletId(addrs?.shieldedAddress, addrs?.shieldedCoinPublicKey);
+        if (walletId) {
           setState((prev) => ({
             ...prev,
             status: 'connected',
-            shieldedAddress: addrs.shieldedAddress,
-            coinPublicKey: addrs.shieldedCoinPublicKey,
+            shieldedAddress: addrs.shieldedAddress || null,
+            coinPublicKey: addrs.shieldedCoinPublicKey || null,
             walletSyncing: false,
           }));
-          restoreWalletState(walletId);
+          restoreWalletState(walletId, addrs.shieldedAddress && addrs.shieldedCoinPublicKey ? (walletId === addrs.shieldedCoinPublicKey ? addrs.shieldedAddress : addrs.shieldedCoinPublicKey) : null);
           return;
         }
       } catch (err: any) {
@@ -512,27 +667,37 @@ export function useMidnight() {
   }, [restoreWalletState]);
 
   // Real wallet connection using Midnight DApp Connector standard
-  const connectWallet = useCallback(async () => {
+  const connectWallet = useCallback(async (isAutoConnect = false) => {
     if (typeof window === 'undefined' || !window.midnight) {
-      setState((prev) => ({
-        ...prev,
-        status: 'wallet-not-detected',
-        error: 'No compatible Midnight wallet detected. Please install the Midnight Lace Wallet extension.',
-      }));
+      if (!isAutoConnect) {
+        setState((prev) => ({
+          ...prev,
+          status: 'wallet-not-detected',
+          error: 'No compatible Midnight wallet detected. Please install the Midnight Lace Wallet extension.',
+        }));
+      }
       return;
     }
 
-    setState((prev) => ({ ...prev, status: 'connecting', error: null }));
+    if (!isAutoConnect) {
+      setState((prev) => ({ ...prev, status: 'connecting', error: null }));
+    }
 
     try {
       const wallets = Object.values(window.midnight);
       if (wallets.length === 0) throw new Error('Midnight wallet provider is empty.');
 
       const initialApi = wallets[0];
+      console.log('[PrivEstate][RESTORE] connector detected', initialApi.name);
+
       const api = await initialApi.connect(PREPROD_NETWORK_ID);
+      console.log('[PrivEstate][RESTORE] wallet connected');
 
       setConnectedApi(api);
       connectedApiRef.current = api;
+      try {
+        localStorage.setItem('privestate_v1_auto_connect', 'true');
+      } catch { /* ignore */ }
 
       let shieldedAddr: string | null = null;
       let coinPubKey: string | null = null;
@@ -540,8 +705,8 @@ export function useMidnight() {
 
       try {
         const addrs = await api.getShieldedAddresses();
-        shieldedAddr = addrs.shieldedAddress || null;
-        coinPubKey = addrs.shieldedCoinPublicKey || null;
+        shieldedAddr = addrs?.shieldedAddress || null;
+        coinPubKey = addrs?.shieldedCoinPublicKey || null;
       } catch (err: any) {
         if (err?.message?.toLowerCase().includes('sync')) {
           isSyncing = true;
@@ -550,7 +715,7 @@ export function useMidnight() {
         }
       }
 
-      const activeWalletId = shieldedAddr || coinPubKey;
+      const activeWalletId = getDeterministicWalletId(shieldedAddr, coinPubKey);
       if (activeWalletId) {
         currentWalletIdRef.current = activeWalletId;
       }
@@ -567,21 +732,57 @@ export function useMidnight() {
       }));
 
       if (activeWalletId && !isSyncing) {
-        restoreWalletState(activeWalletId);
+        restoreWalletState(activeWalletId, shieldedAddr && coinPubKey ? (activeWalletId === coinPubKey ? shieldedAddr : coinPubKey) : null);
       } else if (isSyncing) {
         pollForShieldedAddress(api);
       }
     } catch (err: any) {
-      console.error('Midnight wallet connection error:', err);
-      setState((prev) => ({
-        ...prev,
-        status: 'error',
-        error: err.message || 'Failed to connect to Midnight wallet.',
-      }));
+      if (!isAutoConnect) {
+        console.error('Midnight wallet connection error:', err);
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          error: err.message || 'Failed to connect to Midnight wallet.',
+        }));
+      }
     }
   }, [pollForShieldedAddress, restoreWalletState]);
 
+  // Check for injected Midnight DApp connector wallet on mount & attempt auto-reconnect
+  useEffect(() => {
+    const checkAndAutoConnect = async () => {
+      if (typeof window !== 'undefined' && window.midnight) {
+        const wallets = Object.values(window.midnight);
+        if (wallets.length > 0) {
+          const defaultWallet = wallets[0];
+          console.log('[PrivEstate][RESTORE] connector detected', defaultWallet.name);
+          setState((prev) => ({
+            ...prev,
+            walletName: defaultWallet.name,
+            walletIcon: defaultWallet.icon,
+          }));
+
+          const shouldAutoConnect = localStorage.getItem('privestate_v1_auto_connect') === 'true';
+          if (shouldAutoConnect) {
+            try {
+              await connectWallet(true);
+            } catch {
+              /* ignore silent connect error */
+            }
+          }
+        }
+      }
+    };
+
+    checkAndAutoConnect();
+    const timer = setTimeout(checkAndAutoConnect, 1000);
+    return () => clearTimeout(timer);
+  }, [connectWallet]);
+
   const disconnectWallet = useCallback(() => {
+    try {
+      localStorage.removeItem('privestate_v1_auto_connect');
+    } catch { /* ignore */ }
     setConnectedApi(null);
     connectedApiRef.current = null;
     currentWalletIdRef.current = null;
@@ -595,6 +796,7 @@ export function useMidnight() {
       portfolio: {},
       transactionHistory: [],
       verificationHistory: [],
+      currentProofStatus: null,
     }));
   }, []);
 
@@ -728,20 +930,6 @@ export function useMidnight() {
 
   /**
    * REAL On-Chain Share Purchase Transaction
-   *
-   * This executes the complete Midnight Preprod transaction pipeline:
-   *
-   * 1. Validate wallet is connected + synced
-   * 2. Get live network config from wallet (indexer URLs)
-   * 3. Build publicDataProvider → connect to Preprod indexer
-   * 4. Get ProvingProvider from wallet → build ProofProvider
-   * 5. Get wallet keys (CoinPublicKey, EncPublicKey)
-   * 6. Build WalletProvider adapter from ConnectedAPI
-   * 7. Build ZKConfigProvider using wallet's ProvingProvider
-   * 8. Assemble ContractProviders: { publicDataProvider, walletProvider, zkConfigProvider, proofProvider, privateStateProvider }
-   * 9. Load compiled contract + target contract address
-   * 10. Call submitCallTx() → proves circuit → balances → submits → waits for on-chain confirmation
-   * 11. Returns real txId from Midnight Preprod ledger
    */
   const executeSharePurchase = useCallback(
     async (property: PropertyMetadata, shares: bigint, capitalUsd: bigint) => {
@@ -764,8 +952,6 @@ export function useMidnight() {
       }));
 
       try {
-        // Step 1: Get live configuration from the connected wallet
-        // This ensures we use the same indexer/node the wallet is connected to
         let indexerUri = PREPROD_INDEXER_URI;
         let indexerWsUri = PREPROD_INDEXER_WS_URI;
 
@@ -777,14 +963,11 @@ export function useMidnight() {
           console.warn('Could not get wallet configuration, using defaults:', configErr);
         }
 
-        // Step 2: Build the PublicDataProvider backed by Preprod indexer GraphQL
         const publicDataProvider: PublicDataProvider = indexerPublicDataProvider(
           indexerUri,
           indexerWsUri,
         );
 
-        // Step 3: Get ProvingProvider from the wallet (delegates ZK proving to Lace)
-        // This avoids requiring a local proof server Docker container
         setState((prev) => ({
           ...prev,
           transactionStatus: 'preparing-transaction',
@@ -796,43 +979,35 @@ export function useMidnight() {
         let coinPublicKey: string;
         let encPublicKey: string;
 
-        // Get wallet's shielded keys for transaction construction
         const addrs = await api.getShieldedAddresses();
         coinPublicKey = addrs.shieldedCoinPublicKey;
         encPublicKey = addrs.shieldedEncryptionPublicKey;
 
-        // Build in-memory ZKConfigProvider for browser
         zkConfigProvider = createPrivEstateZKConfigProvider();
 
-        // Get ProvingProvider from wallet with real key material
         const walletProvingProvider = await api.getProvingProvider(
           zkConfigProvider.asKeyMaterialProvider()
         );
 
-        // Create ProofProvider from wallet's ProvingProvider
         proofProvider = createProofProvider(walletProvingProvider);
 
-        // Build WalletProvider adapter from ConnectedAPI
         const walletProvider: WalletProvider = createWalletProviderFromConnectedAPI(
           api,
           coinPublicKey,
           encPublicKey,
         );
 
-        // Step 4: Prepare private state for this property circuit execution
         const secretKey = new Uint8Array(32);
         crypto.getRandomValues(secretKey);
 
         const privateState: PrivEstatePrivateState = {
           investorOwnership: shares,
           investmentAmount: capitalUsd,
-          rentalIncome: 0n, // Populated post-purchase
+          rentalIncome: 0n,
           investorSecretKey: secretKey,
         };
 
-        // Store private state under the property ID for this circuit call
-        const metaEnv = (import.meta as any).env || {};
-        const contractAddress = metaEnv.VITE_CONTRACT_ADDRESS || '';
+        const contractAddress = getEffectiveContractAddress();
         if (!contractAddress) {
           throw new Error(
             'Contract address not configured. Set VITE_CONTRACT_ADDRESS in .env after deploying to Preprod.\n' +
@@ -843,7 +1018,6 @@ export function useMidnight() {
         privateStateProviderRef.current.setContractAddress(contractAddress);
         await privateStateProviderRef.current.set(property.id, privateState);
 
-        // Step 5: Assemble ContractProviders with fast indexer fallback
         let capturedTxId = '';
         const baseMidnightProvider = createMidnightProviderFromConnectedAPI(api);
         const wrappedMidnightProvider = {
@@ -865,8 +1039,8 @@ export function useMidnight() {
                 const targetAddress = contractAddress;
                 if (targetAddress) {
                   try {
-                    const state = await publicDataProvider.queryContractState(targetAddress);
-                    if (state) {
+                    const cState = await publicDataProvider.queryContractState(targetAddress);
+                    if (cState) {
                       const effectiveTxId = txId || capturedTxId || `tx-${Date.now().toString(16)}`;
                       return res({
                         status: 'SucceedEntirely',
@@ -898,7 +1072,6 @@ export function useMidnight() {
           privateStateProvider: privateStateProviderRef.current,
         };
 
-        // Step 6: Build compiled contract instance with witnesses
         const witnesses = createWitnesses(privateState);
         const compiledContract = (CompiledContract.make as any)('PrivEstate', Contract).pipe(
           (CompiledContract.withWitnesses as any)(witnesses),
@@ -910,17 +1083,14 @@ export function useMidnight() {
           currentProofStatus: 'Generating ZK proof and requesting wallet authorization...',
         }));
 
-        // Step 7: Submit the real on-chain transaction
-        // submitCallTx: proves → balances (wallet adds fees) → submits → waits for confirmation
         const finalizedTxData = await submitCallTx(providers as any, {
           compiledContract: compiledContract as any,
-          circuitId: 'proveOwnershipThreshold' as any, // Using proveOwnershipThreshold as the investment circuit
+          circuitId: 'proveOwnershipThreshold' as any,
           contractAddress,
           privateStateId: property.id,
           args: [shares] as any,
         });
 
-        // Step 8: Extract the real transaction ID from the finalized data
         const txId = finalizedTxData.public.txId || finalizedTxData.public.txHash;
 
         setState((prev) => ({
@@ -936,7 +1106,6 @@ export function useMidnight() {
           currentProofStatus: 'Waiting for Midnight Preprod ledger confirmation...',
         }));
 
-        // The txId is already confirmed since submitCallTx waits for finalization
         const yieldPercent = parseFloat(property.projectedYieldApy.replace('%', '')) || 8.0;
         const annualRentalEstimate = BigInt(Math.round(Number(capitalUsd) * (yieldPercent / 100)));
 
@@ -948,13 +1117,19 @@ export function useMidnight() {
           secretKey,
         };
 
-        // Update private state with rental income
         await privateStateProviderRef.current.set(property.id, {
           ...privateState,
           rentalIncome: annualRentalEstimate,
         });
 
-        const activeWalletId = currentWalletIdRef.current;
+        const activeWalletId = currentWalletIdRef.current || getDeterministicWalletId(addrs.shieldedAddress, addrs.shieldedCoinPublicKey);
+        if (activeWalletId) {
+          currentWalletIdRef.current = activeWalletId;
+        }
+
+        const safeFingerprint = getSafeWalletFingerprint(activeWalletId);
+        console.log('[PrivEstate][RESTORE] purchase confirmed for walletId =', safeFingerprint);
+
         const txRecord: MidnightTransactionRecord = {
           txId,
           propertyId: property.id,
@@ -963,7 +1138,7 @@ export function useMidnight() {
           capitalUsd: capitalUsd.toString(),
           timestamp: new Date().toISOString(),
           contractAddress,
-          walletAddress: activeWalletId || 'unknown',
+          walletAddress: addrs.shieldedAddress || addrs.shieldedCoinPublicKey || activeWalletId || 'unknown',
           status: 'confirmed',
         };
 
@@ -972,7 +1147,7 @@ export function useMidnight() {
             ...prev.portfolio,
             [property.id]: newHolding,
           };
-          const updatedHistory = [txRecord, ...prev.transactionHistory];
+          const updatedHistory = [txRecord, ...prev.transactionHistory.filter((t) => t.txId !== txId)];
           saveWalletPortfolio(activeWalletId, updatedPortfolio, contractAddress);
           saveWalletTxHistory(activeWalletId, updatedHistory, contractAddress);
 
@@ -989,13 +1164,11 @@ export function useMidnight() {
         return { txId, holding: newHolding };
 
       } catch (err: any) {
-        // Distinguish between user rejection and technical failure
         const isRejected = err?.message?.toLowerCase().includes('reject') ||
                            err?.message?.toLowerCase().includes('cancel') ||
                            err?.message?.toLowerCase().includes('denied') ||
                            err?.code === 4001;
 
-        // Check if this is a proof server / contract address issue
         const isConfigError = err?.message?.includes('Contract address not configured') ||
                               err?.message?.includes('deploy-preprod');
 
