@@ -24,21 +24,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Midnight Compact Compiler
-        run: |
-          echo "Installing official Midnight Compact CLI..."
-          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          export PATH="$HOME/.local/bin:$PATH"
-          echo "Updating Compact compiler..."
-          compact update || true
-          compact compile --version
-
-      - name: Compile Compact Smart Contract
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          npm run compact
-
       - name: Run Contract & Circuit Tests
         run: npm test
 
