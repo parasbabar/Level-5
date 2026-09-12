@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMidnight } from './hooks/useMidnight';
 import { useDeployContract } from './hooks/useDeployContract';
 import { Layout, type ActiveTab } from './components/Layout';
@@ -17,6 +17,10 @@ export function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('marketplace');
   const [selectedProperty, setSelectedProperty] = useState<PropertyMetadata | null>(null);
   const [complianceMode, setComplianceMode] = useState<'compliance' | 'rental'>('compliance');
+
+  useEffect(() => {
+    console.log('[RESTORE 1] App mounted');
+  }, []);
 
   const handleSelectPropertyForProof = (
     property: PropertyMetadata,

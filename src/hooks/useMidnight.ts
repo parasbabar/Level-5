@@ -5,14 +5,7 @@
  * assembles the full ContractProviders stack from the live ConnectedAPI,
  * and executes genuine on-chain Midnight Preprod transactions.
  *
- * Transaction pipeline:
- *   1. Connect Lace wallet → ConnectedAPI
- *   2. Fetch live config (indexerUri, indexerWsUri) from wallet
- *   3. Build publicDataProvider (indexerPublicDataProvider)
- *   4. Build proofProvider (via ConnectedAPI.getProvingProvider → ProvingProvider → createProofProvider)
- *   5. Build walletProvider adapter from ConnectedAPI
- *   6. Execute circuit via submitCallTx() → real on-chain transaction
- *   7. Watch for confirmation via publicDataProvider.watchForTxData(txId)
+ * Provides deterministic, wallet-isolated state restoration across page reloads (F5).
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -131,7 +124,7 @@ export function getEffectiveContractAddress(): string {
 
 /**
  * Computes a non-sensitive, safe fingerprint of the wallet identifier for logs.
- * Never outputs raw secret keys or full witness data.
+ * Never outputs raw secret keys, seed phrases, or full witness data.
  */
 export function getSafeWalletFingerprint(walletId: string | null | undefined): string {
   if (!walletId) return 'none';
@@ -385,6 +378,50 @@ function saveWalletTxHistory(
   }
 }
 
+function loadWalletVerificationHistory(
+  walletId: string | null,
+  contractAddress?: string | null,
+  alternateWalletId?: string | null
+): VerificationResult[] {
+  if (!walletId) return [];
+  const candidateKeys = getCandidateStorageKeys('privestate_v1_verifications', walletId, contractAddress, alternateWalletId);
+
+  for (const key of candidateKeys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as VerificationResult[];
+      }
+    } catch {
+      // Continue
+    }
+  }
+  return [];
+}
+
+function saveWalletVerificationHistory(
+  walletId: string | null,
+  history: VerificationResult[],
+  contractAddress?: string | null
+): void {
+  if (!walletId) return;
+  const contract = contractAddress || getEffectiveContractAddress();
+  try {
+    const primaryKey = `privestate_v1_verifications_${walletId.trim()}_${contract}`;
+    const json = JSON.stringify(history);
+    localStorage.setItem(primaryKey, json);
+
+    const suffixKey = `privestate_v1_verifications_${walletId.trim().slice(-16)}_${contract}`;
+    if (suffixKey !== primaryKey) {
+      localStorage.setItem(suffixKey, json);
+    }
+  } catch {
+    /* storage quota */
+  }
+}
+
 /**
  * Creates a browser-persistent PrivateStateProvider isolated by wallet identity and contract.
  */
@@ -533,10 +570,30 @@ function createMidnightProviderFromConnectedAPI(api: ConnectedAPI): MidnightProv
   };
 }
 
-export function useMidnight() {
-  const currentWalletIdRef = useRef<string | null>(null);
+function getInitialHydratedState(): {
+  lastWalletId: string | null;
+  portfolio: Record<string, InvestorPrivateHolding>;
+  transactionHistory: MidnightTransactionRecord[];
+  verificationHistory: VerificationResult[];
+} {
+  try {
+    const lastWalletId = typeof window !== 'undefined' ? localStorage.getItem('privestate_v1_last_wallet_id') : null;
+    if (lastWalletId) {
+      const contractAddress = getEffectiveContractAddress();
+      const { portfolio } = loadWalletPortfolio(lastWalletId, contractAddress);
+      const transactionHistory = loadWalletTxHistory(lastWalletId, contractAddress);
+      const verificationHistory = loadWalletVerificationHistory(lastWalletId, contractAddress);
+      return { lastWalletId, portfolio, transactionHistory, verificationHistory };
+    }
+  } catch { /* ignore */ }
+  return { lastWalletId: null, portfolio: {}, transactionHistory: [], verificationHistory: [] };
+}
 
-  const [state, setState] = useState<MidnightState>({
+export function useMidnight() {
+  const initialHydration = useRef(getInitialHydratedState());
+  const currentWalletIdRef = useRef<string | null>(initialHydration.current.lastWalletId);
+
+  const [state, setState] = useState<MidnightState>(() => ({
     status: 'disconnected',
     walletName: null,
     walletIcon: null,
@@ -548,13 +605,13 @@ export function useMidnight() {
     isProofGenerating: false,
     currentProofStatus: null,
     isRestoringState: false,
-    portfolio: {},
-    transactionHistory: [],
-    verificationHistory: [],
+    portfolio: initialHydration.current.portfolio,
+    transactionHistory: initialHydration.current.transactionHistory,
+    verificationHistory: initialHydration.current.verificationHistory,
     transactionStatus: 'idle',
     transactionTxId: null,
     transactionError: null,
-  });
+  }));
 
   const connectedApiRef = useRef<ConnectedAPI | null>(null);
   const [connectedApi, setConnectedApi] = useState<ConnectedAPI | null>(null);
@@ -565,14 +622,19 @@ export function useMidnight() {
   // Wallet-isolated State Restoration & Indexer Verification
   const restoreWalletState = useCallback(async (walletId: string, alternateId?: string | null) => {
     currentWalletIdRef.current = walletId;
+    try {
+      localStorage.setItem('privestate_v1_last_wallet_id', walletId);
+    } catch { /* ignore */ }
+
     const contractAddress = getEffectiveContractAddress();
     const safeFingerprint = getSafeWalletFingerprint(walletId);
 
-    console.log('[PrivEstate][RESTORE] walletId =', safeFingerprint);
-    console.log('[PrivEstate][RESTORE] contractAddress =', contractAddress);
+    console.log('[RESTORE 10] restoreWalletState called');
+    console.log('[RESTORE 4] wallet fingerprint:', safeFingerprint);
+    console.log('[RESTORE 5] contract address:', contractAddress);
 
     const privateStateKey = `privestate_v1_private_states_${walletId.trim()}_${contractAddress}`;
-    console.log('[PrivEstate][RESTORE] private state key =', privateStateKey);
+    console.log('[RESTORE 6] persistence key:', privateStateKey);
 
     setState((prev) => ({
       ...prev,
@@ -584,10 +646,11 @@ export function useMidnight() {
       const { portfolio: restoredPortfolio, found: portfolioFound } = loadWalletPortfolio(walletId, contractAddress, alternateId);
       const { found: privateStateFound } = loadWalletPrivateStates(walletId, contractAddress, alternateId);
       const rawTxHistory = loadWalletTxHistory(walletId, contractAddress, alternateId);
+      const rawVerifications = loadWalletVerificationHistory(walletId, contractAddress, alternateId);
 
-      console.log('[PrivEstate][RESTORE] stored portfolio found =', portfolioFound);
-      console.log('[PrivEstate][RESTORE] private state found =', privateStateFound);
-      console.log('[PrivEstate][RESTORE] tx history count =', rawTxHistory.length);
+      console.log('[RESTORE 7] stored private state exists:', privateStateFound);
+      console.log('[RESTORE 8] stored portfolio exists:', portfolioFound);
+      console.log('[RESTORE 9] stored transaction history count:', rawTxHistory.length);
 
       let verifiedTxHistory: MidnightTransactionRecord[] = [];
       if (rawTxHistory.length > 0) {
@@ -612,19 +675,22 @@ export function useMidnight() {
 
       const hasHoldings = Object.values(restoredPortfolio).some((h) => h.ownershipShares > 0n);
 
-      console.log('[PrivEstate][RESTORE] setPortfolio called');
-      console.log('[PrivEstate][RESTORE] setTransactionHistory called');
+      console.log('[RESTORE 11] portfolio restored');
+      console.log('[RESTORE 12] transaction history restored');
 
       setState((prev) => ({
         ...prev,
         isRestoringState: false,
         portfolio: restoredPortfolio,
         transactionHistory: verifiedTxHistory,
+        verificationHistory: rawVerifications,
         currentProofStatus: hasHoldings ? 'Portfolio restored' : 'No private holdings yet',
         error: null,
       }));
+
+      console.log('[RESTORE 13] React state updated');
     } catch (err: any) {
-      console.error('[PrivEstate][RESTORE] restoration error:', err);
+      console.error('[RESTORE] restoration error:', err);
       setState((prev) => ({
         ...prev,
         isRestoringState: false,
@@ -688,10 +754,10 @@ export function useMidnight() {
       if (wallets.length === 0) throw new Error('Midnight wallet provider is empty.');
 
       const initialApi = wallets[0];
-      console.log('[PrivEstate][RESTORE] connector detected', initialApi.name);
+      console.log('[RESTORE 2] Midnight connector detected', initialApi.name);
 
       const api = await initialApi.connect(PREPROD_NETWORK_ID);
-      console.log('[PrivEstate][RESTORE] wallet connected');
+      console.log('[RESTORE 3] wallet connected');
 
       setConnectedApi(api);
       connectedApiRef.current = api;
@@ -718,6 +784,9 @@ export function useMidnight() {
       const activeWalletId = getDeterministicWalletId(shieldedAddr, coinPubKey);
       if (activeWalletId) {
         currentWalletIdRef.current = activeWalletId;
+        try {
+          localStorage.setItem('privestate_v1_last_wallet_id', activeWalletId);
+        } catch { /* ignore */ }
       }
 
       setState((prev) => ({
@@ -755,7 +824,7 @@ export function useMidnight() {
         const wallets = Object.values(window.midnight);
         if (wallets.length > 0) {
           const defaultWallet = wallets[0];
-          console.log('[PrivEstate][RESTORE] connector detected', defaultWallet.name);
+          console.log('[RESTORE 2] Midnight connector detected', defaultWallet.name);
           setState((prev) => ({
             ...prev,
             walletName: defaultWallet.name,
@@ -775,13 +844,14 @@ export function useMidnight() {
     };
 
     checkAndAutoConnect();
-    const timer = setTimeout(checkAndAutoConnect, 1000);
+    const timer = setTimeout(checkAndAutoConnect, 800);
     return () => clearTimeout(timer);
   }, [connectWallet]);
 
   const disconnectWallet = useCallback(() => {
     try {
       localStorage.removeItem('privestate_v1_auto_connect');
+      localStorage.removeItem('privestate_v1_last_wallet_id');
     } catch { /* ignore */ }
     setConnectedApi(null);
     connectedApiRef.current = null;
@@ -834,12 +904,19 @@ export function useMidnight() {
 
       try {
         const verification = await runOwnershipThresholdProof(property, holding, requiredPercentage);
-        setState((prev) => ({
-          ...prev,
-          isProofGenerating: false,
-          currentProofStatus: 'Proof verified! Claim is cryptographically validated.',
-          verificationHistory: [verification, ...prev.verificationHistory],
-        }));
+        const activeWalletId = currentWalletIdRef.current;
+        const contractAddress = getEffectiveContractAddress();
+
+        setState((prev) => {
+          const updatedVerifications = [verification, ...prev.verificationHistory];
+          saveWalletVerificationHistory(activeWalletId, updatedVerifications, contractAddress);
+          return {
+            ...prev,
+            isProofGenerating: false,
+            currentProofStatus: 'Proof verified! Claim is cryptographically validated.',
+            verificationHistory: updatedVerifications,
+          };
+        });
         return verification;
       } catch (err: any) {
         setState((prev) => ({
@@ -871,12 +948,19 @@ export function useMidnight() {
 
       try {
         const verification = await runComplianceProof(property, holding, minimumUsd);
-        setState((prev) => ({
-          ...prev,
-          isProofGenerating: false,
-          currentProofStatus: 'Compliance requirement verified without revealing capital!',
-          verificationHistory: [verification, ...prev.verificationHistory],
-        }));
+        const activeWalletId = currentWalletIdRef.current;
+        const contractAddress = getEffectiveContractAddress();
+
+        setState((prev) => {
+          const updatedVerifications = [verification, ...prev.verificationHistory];
+          saveWalletVerificationHistory(activeWalletId, updatedVerifications, contractAddress);
+          return {
+            ...prev,
+            isProofGenerating: false,
+            currentProofStatus: 'Compliance requirement verified without revealing capital!',
+            verificationHistory: updatedVerifications,
+          };
+        });
         return verification;
       } catch (err: any) {
         setState((prev) => ({
@@ -908,12 +992,19 @@ export function useMidnight() {
 
       try {
         const verification = await runRentalYieldProof(property, holding, minimumYieldUsd);
-        setState((prev) => ({
-          ...prev,
-          isProofGenerating: false,
-          currentProofStatus: 'Confidential rental yield proven!',
-          verificationHistory: [verification, ...prev.verificationHistory],
-        }));
+        const activeWalletId = currentWalletIdRef.current;
+        const contractAddress = getEffectiveContractAddress();
+
+        setState((prev) => {
+          const updatedVerifications = [verification, ...prev.verificationHistory];
+          saveWalletVerificationHistory(activeWalletId, updatedVerifications, contractAddress);
+          return {
+            ...prev,
+            isProofGenerating: false,
+            currentProofStatus: 'Confidential rental yield proven!',
+            verificationHistory: updatedVerifications,
+          };
+        });
         return verification;
       } catch (err: any) {
         setState((prev) => ({
@@ -1125,10 +1216,13 @@ export function useMidnight() {
         const activeWalletId = currentWalletIdRef.current || getDeterministicWalletId(addrs.shieldedAddress, addrs.shieldedCoinPublicKey);
         if (activeWalletId) {
           currentWalletIdRef.current = activeWalletId;
+          try {
+            localStorage.setItem('privestate_v1_last_wallet_id', activeWalletId);
+          } catch { /* ignore */ }
         }
 
         const safeFingerprint = getSafeWalletFingerprint(activeWalletId);
-        console.log('[PrivEstate][RESTORE] purchase confirmed for walletId =', safeFingerprint);
+        console.log('[RESTORE 4] wallet fingerprint:', safeFingerprint);
 
         const txRecord: MidnightTransactionRecord = {
           txId,
