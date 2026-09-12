@@ -615,6 +615,8 @@ export function useMidnight() {
 
   const connectedApiRef = useRef<ConnectedAPI | null>(null);
   const [connectedApi, setConnectedApi] = useState<ConnectedAPI | null>(null);
+  const isConnectingRef = useRef(false);
+  const isPurchasingRef = useRef(false);
 
   // Stable persistent private state provider (survives renders & page reloads)
   const privateStateProviderRef = useRef(createPersistentPrivateStateProvider(() => currentWalletIdRef.current));
@@ -734,7 +736,14 @@ export function useMidnight() {
 
   // Real wallet connection using Midnight DApp Connector standard
   const connectWallet = useCallback(async (isAutoConnect = false) => {
+    if (isConnectingRef.current) {
+      console.log('[PrivEstate] Wallet connection already in progress, ignoring duplicate request');
+      return;
+    }
+    isConnectingRef.current = true;
+
     if (typeof window === 'undefined' || !window.midnight) {
+      isConnectingRef.current = false;
       if (!isAutoConnect) {
         setState((prev) => ({
           ...prev,
@@ -814,6 +823,8 @@ export function useMidnight() {
           error: err.message || 'Failed to connect to Midnight wallet.',
         }));
       }
+    } finally {
+      isConnectingRef.current = false;
     }
   }, [pollForShieldedAddress, restoreWalletState]);
 
@@ -1024,9 +1035,16 @@ export function useMidnight() {
    */
   const executeSharePurchase = useCallback(
     async (property: PropertyMetadata, shares: bigint, capitalUsd: bigint) => {
+      if (isPurchasingRef.current) {
+        console.warn('[PrivEstate] Purchase already in progress, ignoring duplicate request');
+        return { txId: null, holding: { propertyId: property.id, ownershipShares: shares, investmentAmountUsd: capitalUsd, annualRentalIncomeUsd: 0n, secretKey: new Uint8Array(32) } };
+      }
+      isPurchasingRef.current = true;
+
       const api = connectedApiRef.current;
 
       if (state.status !== 'connected' || !api) {
+        isPurchasingRef.current = false;
         setState((prev) => ({
           ...prev,
           transactionStatus: 'wallet-connection-required',
@@ -1198,56 +1216,15 @@ export function useMidnight() {
           currentProofStatus: 'Generating ZK proof and requesting wallet authorization...',
         }));
 
-        // Retry with backoff for stale wallet "already pending" lock.
-        // On Midnight, block time is ~15-30 seconds. If a previous transaction was just submitted,
-        // the wallet will hold coins until that block is mined. Retrying with proper backoff
-        // lets the previous block confirm cleanly without failing.
-        const PENDING_RETRY_DELAYS_MS = [5000, 8000, 12000, 16000];
-        let finalizedTxData: Awaited<ReturnType<typeof submitCallTx>> | undefined;
+        // Execute transaction once. Concurrency guards prevent duplicate submissions.
+        const finalizedTxData = await submitCallTx(providers as any, {
+          compiledContract: compiledContract as any,
+          circuitId: 'proveOwnershipThreshold' as any,
+          contractAddress,
+          privateStateId: property.id,
+          args: [shares] as any,
+        });
 
-        for (let attempt = 0; attempt <= PENDING_RETRY_DELAYS_MS.length; attempt++) {
-          try {
-            finalizedTxData = await submitCallTx(providers as any, {
-              compiledContract: compiledContract as any,
-              circuitId: 'proveOwnershipThreshold' as any,
-              contractAddress,
-              privateStateId: property.id,
-              args: [shares] as any,
-            });
-            break; // success — exit retry loop
-          } catch (submitErr: any) {
-            const msg = `${submitErr?.message || ''} ${submitErr?.cause?.message || ''}`.toLowerCase();
-            const isPending = msg.includes('already pending') || msg.includes('pending transaction');
-
-            if (!isPending || attempt >= PENDING_RETRY_DELAYS_MS.length) {
-              throw submitErr;
-            }
-
-            const delayMs = PENDING_RETRY_DELAYS_MS[attempt];
-            console.warn(
-              `[PrivEstate] Wallet lock detected (attempt ${attempt + 1}/${PENDING_RETRY_DELAYS_MS.length + 1}). ` +
-              `Previous transaction confirming on Midnight Preprod. Waiting ${delayMs / 1000}s...`
-            );
-            setState((prev) => ({
-              ...prev,
-              transactionStatus: 'awaiting-wallet-signature',
-              currentProofStatus:
-                `Previous transaction is confirming on Midnight Preprod (~15-30s). ` +
-                `Auto-retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${PENDING_RETRY_DELAYS_MS.length + 1})...`,
-            }));
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
-
-            // Re-signal awaiting signature so the UI stays informative
-            setState((prev) => ({
-              ...prev,
-              currentProofStatus:
-                `Retrying wallet authorization (attempt ${attempt + 2}/${PENDING_RETRY_DELAYS_MS.length + 1})...`,
-            }));
-          }
-        }
-
-        // TypeScript narrowing — finalizedTxData is always assigned on success
-        // (the loop only exits via break on success, or throws on failure)
         const txPublic = (finalizedTxData as any)?.public ?? {};
         const txId: string = txPublic.txId || txPublic.txHash || capturedTxId || `tx-${Date.now().toString(16)}`;
 
@@ -1377,6 +1354,8 @@ export function useMidnight() {
           currentProofStatus: null,
         }));
         throw new Error(userFacingError);
+      } finally {
+        isPurchasingRef.current = false;
       }
     },
     [state.status]

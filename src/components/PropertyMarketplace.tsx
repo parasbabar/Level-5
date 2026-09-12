@@ -48,6 +48,7 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
 }) => {
   const [purchasingProperty, setPurchasingProperty] = useState<PropertyMetadata | null>(null);
   const [selectedSharesCount, setSelectedSharesCount] = useState<number>(10_000);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   // Track which property the current modal session is for — prevents stale transactionStatus
   // from a previous property's purchase bleeding into a new modal.
   const modalPropertyIdRef = useRef<string | null>(null);
@@ -79,16 +80,20 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
   const handleCloseModal = () => {
     setPurchasingProperty(null);
     modalPropertyIdRef.current = null;
+    setIsSubmitting(false);
     onResetTransaction();
   };
 
   const handleConfirmPurchase = async () => {
-    if (!purchasingProperty) return;
+    if (!purchasingProperty || isSubmitting) return;
+    setIsSubmitting(true);
     modalPropertyIdRef.current = purchasingProperty.id;
     try {
       await onExecutePurchase(purchasingProperty, BigInt(selectedSharesCount), calculatedCapitalUsd);
     } catch {
       // Handled by state
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -461,18 +466,24 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                     type="button"
                     onClick={handleConfirmPurchase}
                     disabled={
+                      isSubmitting ||
                       (walletStatus !== 'connected' && walletStatus !== 'syncing') ||
                       (effectiveTransactionStatus !== 'idle' && effectiveTransactionStatus !== 'error')
                     }
                     className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition ${
                       walletStatus !== 'connected' && walletStatus !== 'syncing'
                         ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
-                        : effectiveTransactionStatus !== 'idle' && effectiveTransactionStatus !== 'error'
+                        : isSubmitting || (effectiveTransactionStatus !== 'idle' && effectiveTransactionStatus !== 'error')
                         ? 'bg-emerald-600/50 text-white cursor-wait'
                         : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/40'
                     }`}
                   >
-                    {effectiveTransactionStatus === 'awaiting-wallet-signature' ? (
+                    {isSubmitting || effectiveTransactionStatus === 'preparing-transaction' ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Initiating Request...</span>
+                      </>
+                    ) : effectiveTransactionStatus === 'awaiting-wallet-signature' ? (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                         <span>Check Wallet Popup...</span>
