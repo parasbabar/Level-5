@@ -82,6 +82,7 @@ export function App() {
             transactionStatus={midnight.transactionStatus}
             transactionTxId={midnight.transactionTxId}
             transactionError={midnight.transactionError}
+            currentProofStatus={midnight.currentProofStatus}
             onSelectPropertyForProof={handleSelectPropertyForProof}
             onExecutePurchase={midnight.executeSharePurchase}
             onResetTransaction={midnight.resetTransactionState}

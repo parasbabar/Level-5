@@ -24,6 +24,7 @@ interface PropertyMarketplaceProps {
   transactionStatus: TransactionStatus;
   transactionTxId: string | null;
   transactionError: string | null;
+  currentProofStatus?: string | null;
   onSelectPropertyForProof: (property: PropertyMetadata, type: 'ownership' | 'compliance' | 'rental') => void;
   onExecutePurchase: (property: PropertyMetadata, shares: bigint, capitalUsd: bigint) => Promise<{ txId: string | null; holding: InvestorPrivateHolding }>;
   onResetTransaction: () => void;
@@ -38,6 +39,7 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
   transactionStatus,
   transactionTxId,
   transactionError,
+  currentProofStatus,
   onSelectPropertyForProof,
   onExecutePurchase,
   onResetTransaction,
@@ -382,7 +384,13 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                   <div className="p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-lg text-xs text-indigo-300 flex items-center gap-2.5">
                     <RefreshCw className="w-4 h-4 animate-spin shrink-0 text-indigo-400" />
                     <span>
-                      <strong>Awaiting Wallet Signature:</strong> Please approve the authorization request in your Midnight Lace Wallet extension.
+                      {currentProofStatus ? (
+                        <span>{currentProofStatus}</span>
+                      ) : (
+                        <span>
+                          <strong>Awaiting Wallet Signature:</strong> Please approve the authorization request in your Midnight Lace Wallet extension.
+                        </span>
+                      )}
                     </span>
                   </div>
                 )}
@@ -391,7 +399,11 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                   <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs text-emerald-300 flex items-center gap-2.5">
                     <RefreshCw className="w-4 h-4 animate-spin shrink-0 text-emerald-400" />
                     <span>
-                      <strong>Transaction Submitted:</strong> Broadcasting to Midnight Preprod network...
+                      {currentProofStatus || (
+                        <span>
+                          <strong>Transaction Submitted:</strong> Broadcasting to Midnight Preprod network...
+                        </span>
+                      )}
                     </span>
                   </div>
                 )}
@@ -400,7 +412,11 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                   <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-300 flex items-center gap-2.5">
                     <RefreshCw className="w-4 h-4 animate-spin shrink-0 text-amber-400" />
                     <span>
-                      <strong>Waiting for Confirmation:</strong> Finalizing on Midnight Preprod ledger...
+                      {currentProofStatus || (
+                        <span>
+                          <strong>Waiting for Confirmation:</strong> Finalizing on Midnight Preprod ledger (~15-30s)...
+                        </span>
+                      )}
                     </span>
                   </div>
                 )}
@@ -415,7 +431,10 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                       </div>
                     </div>
                     {transactionError.toLowerCase().includes('pending') && (
-                      <div className="pt-2 border-t border-rose-500/20 flex justify-end">
+                      <div className="pt-2 border-t border-rose-500/20 flex items-center justify-between">
+                        <span className="text-[11px] text-amber-300/90">
+                          Block confirmation on Midnight Preprod takes 15-30s.
+                        </span>
                         <button
                           type="button"
                           onClick={() => onResetTransaction()}
