@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Building2,
   ShieldCheck,
@@ -12,12 +12,14 @@ import {
   CheckCircle2,
   AlertCircle,
   Lock,
+  BadgeCheck,
 } from 'lucide-react';
 import type { PropertyMetadata, InvestorPrivateHolding } from '../utils/contract';
 import type { TransactionStatus, WalletConnectionStatus } from '../hooks/useMidnight';
 
 interface PropertyMarketplaceProps {
   properties: PropertyMetadata[];
+  portfolio: Record<string, InvestorPrivateHolding>;
   walletStatus: WalletConnectionStatus;
   transactionStatus: TransactionStatus;
   transactionTxId: string | null;
@@ -31,6 +33,7 @@ interface PropertyMarketplaceProps {
 
 export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
   properties,
+  portfolio,
   walletStatus,
   transactionStatus,
   transactionTxId,
@@ -43,6 +46,9 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
 }) => {
   const [purchasingProperty, setPurchasingProperty] = useState<PropertyMetadata | null>(null);
   const [selectedSharesCount, setSelectedSharesCount] = useState<number>(10_000);
+  // Track which property the current modal session is for — prevents stale transactionStatus
+  // from a previous property's purchase bleeding into a new modal.
+  const modalPropertyIdRef = useRef<string | null>(null);
 
   const pricePerShareUsd = purchasingProperty && purchasingProperty.totalShares > 0n
     ? purchasingProperty.totalValuationUsd / Number(purchasingProperty.totalShares)
@@ -53,19 +59,30 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
     ? ((selectedSharesCount / Number(purchasingProperty.totalShares)) * 100).toFixed(2)
     : '0.00';
 
+  // Determine if the transactionStatus reflects THIS property's session (not a stale previous one)
+  const isCurrentModalTx = modalPropertyIdRef.current === purchasingProperty?.id;
+  const effectiveTransactionStatus: TransactionStatus =
+    purchasingProperty && !isCurrentModalTx && transactionStatus === 'confirmed'
+      ? 'idle'  // Don't show success screen for a different property's old confirmed tx
+      : transactionStatus;
+
   const handleOpenPurchase = (prop: PropertyMetadata) => {
+    // Always reset before opening a new property modal to clear stale wallet state
+    onResetTransaction();
+    modalPropertyIdRef.current = prop.id;
     setPurchasingProperty(prop);
     setSelectedSharesCount(Number(prop.totalShares) / 10); // default 10%
-    onResetTransaction();
   };
 
   const handleCloseModal = () => {
     setPurchasingProperty(null);
+    modalPropertyIdRef.current = null;
     onResetTransaction();
   };
 
   const handleConfirmPurchase = async () => {
     if (!purchasingProperty) return;
+    modalPropertyIdRef.current = purchasingProperty.id;
     try {
       await onExecutePurchase(purchasingProperty, BigInt(selectedSharesCount), calculatedCapitalUsd);
     } catch {
@@ -94,7 +111,10 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
 
       {/* Grid of properties */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {properties.map((prop) => (
+        {properties.map((prop) => {
+          const existingHolding = portfolio[prop.id];
+          const alreadyInvested = existingHolding && existingHolding.ownershipShares > 0n;
+          return (
           <div
             key={prop.id}
             className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl overflow-hidden shadow-lg transition duration-200 flex flex-col"
@@ -109,9 +129,16 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
               <div className="absolute top-3 left-3 bg-amber-500/90 backdrop-blur text-slate-950 font-bold text-[10px] tracking-wide px-2.5 py-1 rounded shadow-md uppercase">
                 {prop.status}
               </div>
-              <div className="absolute top-3 right-3 bg-slate-900/80 backdrop-blur text-emerald-400 text-xs font-mono font-semibold px-2 py-0.5 rounded border border-emerald-500/30">
-                {prop.id}
-              </div>
+              {alreadyInvested ? (
+                <div className="absolute top-3 right-3 bg-emerald-900/90 backdrop-blur text-emerald-300 text-[10px] font-bold px-2.5 py-1 rounded border border-emerald-500/50 flex items-center gap-1">
+                  <BadgeCheck className="w-3 h-3" />
+                  <span>HOLDING</span>
+                </div>
+              ) : (
+                <div className="absolute top-3 right-3 bg-slate-900/80 backdrop-blur text-emerald-400 text-xs font-mono font-semibold px-2 py-0.5 rounded border border-emerald-500/30">
+                  {prop.id}
+                </div>
+              )}
               <div className="absolute bottom-3 left-3 bg-slate-950/80 backdrop-blur text-white text-xs px-2.5 py-1 rounded flex items-center gap-1.5 border border-slate-800">
                 <MapPin className="w-3 h-3 text-slate-400" />
                 <span>{prop.location}</span>
@@ -165,10 +192,17 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                 {/* Primary: Acquire Fractional Shares */}
                 <button
                   onClick={() => handleOpenPurchase(prop)}
-                  className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition shadow-md shadow-emerald-950/30"
+                  className={`w-full py-2.5 px-3 ${
+                    alreadyInvested
+                      ? 'bg-slate-700 hover:bg-emerald-700 border border-emerald-600/40'
+                      : 'bg-emerald-600 hover:bg-emerald-500'
+                  } text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition shadow-md shadow-emerald-950/30`}
                 >
-                  <ShoppingBag className="w-4 h-4" />
-                  <span>Acquire Fractional Shares</span>
+                  {alreadyInvested ? (
+                    <><BadgeCheck className="w-4 h-4 text-emerald-400" /><span>Add More Shares</span></>
+                  ) : (
+                    <><ShoppingBag className="w-4 h-4" /><span>Acquire Fractional Shares</span></>
+                  )}
                 </button>
 
                 {/* Secondary Proof Buttons */}
@@ -198,11 +232,13 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Share Purchase & Wallet Signing Modal */}
       {purchasingProperty && (
+        /* Use effectiveTransactionStatus so a stale 'confirmed' from a different property never shows here */
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 text-white animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
@@ -225,7 +261,7 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
             </div>
 
             {/* Modal Content */}
-            {transactionStatus === 'confirmed' ? (
+            {effectiveTransactionStatus === 'confirmed' ? (
               /* Success Confirmation State */
               <div className="space-y-4 text-center py-4">
                 <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
@@ -342,7 +378,7 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                 </div>
 
                 {/* Transaction State Machine Feedback */}
-                {transactionStatus === 'awaiting-wallet-signature' && (
+                {effectiveTransactionStatus === 'awaiting-wallet-signature' && (
                   <div className="p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-lg text-xs text-indigo-300 flex items-center gap-2.5">
                     <RefreshCw className="w-4 h-4 animate-spin shrink-0 text-indigo-400" />
                     <span>
@@ -351,7 +387,7 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                   </div>
                 )}
 
-                {transactionStatus === 'transaction-submitted' && (
+                {effectiveTransactionStatus === 'transaction-submitted' && (
                   <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs text-emerald-300 flex items-center gap-2.5">
                     <RefreshCw className="w-4 h-4 animate-spin shrink-0 text-emerald-400" />
                     <span>
@@ -360,7 +396,7 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                   </div>
                 )}
 
-                {transactionStatus === 'waiting-for-confirmation' && (
+                {effectiveTransactionStatus === 'waiting-for-confirmation' && (
                   <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-300 flex items-center gap-2.5">
                     <RefreshCw className="w-4 h-4 animate-spin shrink-0 text-amber-400" />
                     <span>
@@ -369,7 +405,7 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                   </div>
                 )}
 
-                {transactionError && (
+                {transactionError && effectiveTransactionStatus !== 'idle' && (
                   <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 space-y-2">
                     <div className="flex items-start gap-2.5">
                       <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
@@ -406,23 +442,23 @@ export const PropertyMarketplace: React.FC<PropertyMarketplaceProps> = ({
                     type="button"
                     onClick={handleConfirmPurchase}
                     disabled={
-                      walletStatus !== 'connected' && walletStatus !== 'syncing' ||
-                      (transactionStatus !== 'idle' && transactionStatus !== 'error')
+                      (walletStatus !== 'connected' && walletStatus !== 'syncing') ||
+                      (effectiveTransactionStatus !== 'idle' && effectiveTransactionStatus !== 'error')
                     }
                     className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition ${
                       walletStatus !== 'connected' && walletStatus !== 'syncing'
                         ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
-                        : transactionStatus !== 'idle' && transactionStatus !== 'error'
+                        : effectiveTransactionStatus !== 'idle' && effectiveTransactionStatus !== 'error'
                         ? 'bg-emerald-600/50 text-white cursor-wait'
                         : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/40'
                     }`}
                   >
-                    {transactionStatus === 'awaiting-wallet-signature' ? (
+                    {effectiveTransactionStatus === 'awaiting-wallet-signature' ? (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                         <span>Check Wallet Popup...</span>
                       </>
-                    ) : transactionStatus === 'transaction-submitted' || transactionStatus === 'waiting-for-confirmation' ? (
+                    ) : effectiveTransactionStatus === 'transaction-submitted' || effectiveTransactionStatus === 'waiting-for-confirmation' ? (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                         <span>Confirming on Preprod...</span>

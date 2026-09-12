@@ -77,6 +77,7 @@ export function App() {
         {activeTab === 'marketplace' && (
           <PropertyMarketplace
             properties={midnight.properties}
+            portfolio={midnight.portfolio}
             walletStatus={midnight.status}
             transactionStatus={midnight.transactionStatus}
             transactionTxId={midnight.transactionTxId}
