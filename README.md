@@ -16,8 +16,8 @@ Privacy-Preserving Fractional Real Estate on Midnight
 | 📦 **GitHub Repository** | [https://github.com/parasbabar/level4](https://github.com/parasbabar/level4) | Public repository (38+ commits) |
 | ⛓️ **Midnight Preprod Contract** | `2e5e3eea72733c09f794677002d0a0840163b3b3da1d6e661bc4dd1b421eaab9` | Deployed Compact smart contract |
 | 🌐 **Midnight Preprod Explorer** | [https://explorer.preprod.midnight.network/](https://explorer.preprod.midnight.network/) | Official Midnight Preprod Block Explorer |
-| 🐦 **PrivEstate X Profile** | *TODO: Add PrivEstate X profile URL* | Product building in public profile |
-| 🎥 **MVP Demo Video** | *TODO: Add PrivEstate demo video URL* | Walkthrough recording of live MVP flow |
+| 🐦 **PrivEstate X Profile** | [@PrivEstate](https://x.com/PrivEstate) | Product building in public profile |
+| 🎥 **MVP Demo Video** | [YouTube — PrivEstate MVP Walkthrough](https://youtu.be/FtpLSgYvZHA?si=qJiII_PFlN7c69n) | Walkthrough recording of live MVP flow |
 | ⚙️ **CI/CD Pipeline** | [.github/workflows/ci.yml](.github/workflows/ci.yml) | Automated test, Compact compile, and build |
 | 📖 **Usage Guide** | [docs/USAGE.md](docs/USAGE.md) | Step-by-step investor & auditor walkthrough |
 | 📋 **Project Proposal** | [PROPOSAL.md](PROPOSAL.md) | Product specification and architecture |
@@ -399,7 +399,8 @@ level4/
 
 ## 🎥 Demo
 
-* **Demo Video Link**: *TODO: Add PrivEstate demo video URL*
+* **Demo Video**: [▶️ Watch on YouTube — PrivEstate MVP Walkthrough](https://youtu.be/FtpLSgYvZHA?si=qJiII_PFlN7c69n)
+* **X Demo Post**: [View on X (@PrivEstate)](https://x.com/PrivEstate/status/2098676086213329125)
 
 ### Recommended Demo Flow
 
@@ -417,7 +418,8 @@ level4/
 
 ## 🐦 Building in Public
 
-* **Product X Profile**: *TODO: Add PrivEstate X profile URL*
+* **Product X Profile**: [@PrivEstate on X](https://x.com/PrivEstate)
+* **Launch Post**: [PrivEstate announcement on X](https://x.com/PrivEstate/status/2098676086213329125)
 
 PrivEstate updates and development milestones will be published to the official product X account as part of the Midnight Level 4 challenge.
 
@@ -433,8 +435,8 @@ PrivEstate updates and development milestones will be published to the official 
 - [x] **Usage documentation**: [docs/USAGE.md](docs/USAGE.md) covering investor & auditor workflows
 - [x] **CI/CD workflow**: [.github/workflows/ci.yml](.github/workflows/ci.yml) validating tests and builds
 - [x] **15+ meaningful commits**: 38+ verified commits in repository history
-- [ ] **Product X profile**: *TODO: Add PrivEstate X profile URL*
-- [ ] **Demo video**: *TODO: Add PrivEstate demo video URL*
+- [x] **Product X profile**: [@PrivEstate](https://x.com/PrivEstate)
+- [x] **Demo video**: [YouTube — PrivEstate MVP Walkthrough](https://youtu.be/FtpLSgYvZHA?si=qJiII_PFlN7c69n)
 
 ---
 
