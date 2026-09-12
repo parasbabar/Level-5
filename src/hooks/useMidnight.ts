@@ -1270,6 +1270,9 @@ export function useMidnight() {
                                    err?.message?.toLowerCase().includes('proving') ||
                                    err?.message?.toLowerCase().includes('zkir');
 
+        const isPendingError = err?.message?.toLowerCase().includes('already pending') ||
+                               err?.message?.toLowerCase().includes('pending transaction');
+
         const isDisconnectedError = err?.message?.includes('Wallet UI disconnected') ||
                                     err?.message?.includes('Error forwarding message') ||
                                     err?.message?.includes('Request failed') ||
@@ -1278,6 +1281,9 @@ export function useMidnight() {
         let userFacingError: string;
         if (isRejected) {
           userFacingError = 'Transaction rejected by user in Midnight Lace / 1AM Wallet.';
+        } else if (isPendingError) {
+          userFacingError =
+            'A previous transaction request is still pending in your Midnight Lace Wallet. Open the 1AM / Midnight Lace extension from your browser toolbar to approve or reject the pending prompt, then try again.';
         } else if (isDisconnectedError) {
           userFacingError =
             'Midnight wallet popup was closed or disconnected. Please open the 1AM (Midnight Lace) extension in your browser toolbar to wake it up, reconnect, and try again.';
