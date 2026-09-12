@@ -48,3 +48,22 @@ if (isWindows) {
     process.exit(1);
   }
 }
+
+// Synchronize checkRuntimeVersion in managed/contract/index.js with package.json compact-runtime version
+const indexJsPath = path.join(rootDir, managedDir, 'contract', 'index.js');
+if (fs.existsSync(indexJsPath)) {
+  let content = fs.readFileSync(indexJsPath, 'utf8');
+  const pkgPath = path.join(rootDir, 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const runtimeVer = (pkg.dependencies && pkg.dependencies['@midnight-ntwrk/compact-runtime']) || '0.16.0';
+      const cleanVer = runtimeVer.replace(/[\^~]/g, '');
+      content = content.replace(/__compactRuntime\.checkRuntimeVersion\(['"][^'"]+['"]\);/, `__compactRuntime.checkRuntimeVersion('${cleanVer}');`);
+      fs.writeFileSync(indexJsPath, content, 'utf8');
+      console.log(`[PrivEstate] Synchronized contract index.js checkRuntimeVersion to package.json compact-runtime: ${cleanVer}`);
+    } catch (err) {
+      console.warn(`[PrivEstate] Could not sync checkRuntimeVersion:`, err.message);
+    }
+  }
+}
